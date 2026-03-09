@@ -1,6 +1,8 @@
 #include <iostream>
 #include <vector>
 #include <cmath>
+#include <cstdlib>  
+#include <ctime>
 using namespace std;
 
 class Neuron
@@ -88,44 +90,70 @@ class Layer:
                 neurons.push_back(Neuron(sample_size)); 
             }
         }
-        Layer(int neuron_count, vector<vector<double>> input_vector, vector<double> bias, 
+
+        Layer(int neuron_count, vector<double> input_vector, vector<double> bias, 
             vector<vector<double>> weights, string activation_function){
             this->neuron_count = neuron_count;
             this->activation_function = activation_function;
             
             for (int k=0; k<neuron_count; k++){
-                neurons.push_back(Neuron(bias[k], weights[k], input_vector[k])); 
+                neurons.push_back(Neuron(bias[k], weights[k], input_vector)); 
             }
+        }
+
+        vector<double> calculate_output_vector(){
+            output_vector.clear();
+            for (int i=0; i<neuron_count; i++){
+                output_vector.push_back(neurons[i].calculate_output(activation_function));
+            }
+            return output_vector;
         }
 };
 
 class NeuralNetwork
 {
     public:
-        vector<Layer> layers; // vector of layers in the neural network
-        int layer_count;
+        vector<Layer> hidden_layers; // vector of layers in the neural network
+        int hidden_layer_count;
         string activation_function;
         string loss_function;
         vector<double> input_vector; 
+        int layer_width;
 
-        NeuralNetwork(int layers, int layer_width, vector<double> input_vector, 
+        NeuralNetwork(int hidden_layers, int layer_width, vector<double> input_vector, 
             string activation_function, string loss_function)
         {
-            this->layer_count = layers;
+            this->hidden_layer_count = hidden_layers;;
             this->input_vector = input_vector;
             this->activation_function = activation_function;
             this->loss_function = loss_function;
+            this->layer_width = layer_width;
         }
 
         void forward_pass(){
-            for (int i = 0; i < layer_count; i++) {
-                layers.push_back(Layer(layer_width, input_vector.size(), activation_function));
+            vector<double> previous_input_vector = input_vector;
+            for (int i = 0; i < hidden_layer_count; i++) {
+                 // Initiaulise a vector of weight vectors for the ith layer
+                vector<vector<double>> weights;
+                vector<double> bias_vector(layer_width, 0.0);
+
+                for (int k=0; k<layer_width; k++){
+                    vector<double> weight_vector;
+                    for (int j=0; j<previous_input_vector.size(); j++){
+                        weight_vector.push_back( (rand() / (double)RAND_MAX - 0.5) * 0.2);
+                    }
+                    weights.push_back(weight_vector);
+                }
+                hidden_layers.push_back(Layer(layer_width, previous_input_vector, bias_vector, 
+                    weights, activation_function));
+                previous_input_vector = hidden_layers.back().calculate_output_vector();
             }
         }      
 };
 
 
 int main() {
+    srand(static_cast<unsigned int>(time(0))); // Seed the random number generator  
     cout << "Hello, World!" << endl;
     return 0;
 }
