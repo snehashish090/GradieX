@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstdlib>  
 #include <ctime>
+#include <string>
 using namespace std;
 
 class Neuron
@@ -75,7 +76,7 @@ class Neuron
         }
 };
 
-class Layer:
+class Layer
 {
     public:
         vector<Neuron> neurons; // vector of neurons in the layer
@@ -110,45 +111,89 @@ class Layer:
         }
 };
 
+vector<vector<double>> initialize_weights(int layer_width, int input_size){
+    vector<vector<double>> weights;
+    for (int k=0; k<layer_width; k++){
+        vector<double> weight_vector;
+        for (int j=0; j<input_size; j++){
+            weight_vector.push_back( (rand() / (double)RAND_MAX - 0.5) * 0.2);
+        }
+        weights.push_back(weight_vector);
+    }
+    return weights;
+}
+
 class NeuralNetwork
 {
     public:
         vector<Layer> hidden_layers; // vector of layers in the neural network
         int hidden_layer_count;
-        string activation_function;
+        string hidden_layer_activation_function;
         string loss_function;
         vector<double> input_vector; 
         int layer_width;
+        Layer output_layer;
+        int output_layer_width;
+        string output_activation_function;
+        vector<double> desired_target_vector;
+        vector<vector<double>> weights;
 
-        NeuralNetwork(int hidden_layers, int layer_width, vector<double> input_vector, 
-            string activation_function, string loss_function)
+        NeuralNetwork(
+            int hidden_layers, 
+            int layer_width, 
+            vector<double> input_vector, 
+            string hidden_layer_activation_function,
+            string output_activation_function,
+            string loss_function, 
+            int output_layer_width, 
+            bool weight_initialization_required
+        )
         {
-            this->hidden_layer_count = hidden_layers;;
+            this->hidden_layer_count = hidden_layers;
             this->input_vector = input_vector;
-            this->activation_function = activation_function;
+            this->hidden_layer_activation_function = hidden_layer_activation_function;
             this->loss_function = loss_function;
+            this->output_activation_function = output_activation_function;
+            this->output_layer_width = output_layer_width;
             this->layer_width = layer_width;
         }
 
-        void forward_pass(){
+        vector<double> forward_pass(){
             vector<double> previous_input_vector = input_vector;
             for (int i = 0; i < hidden_layer_count; i++) {
-                 // Initiaulise a vector of weight vectors for the ith layer
-                vector<vector<double>> weights;
                 vector<double> bias_vector(layer_width, 0.0);
-
-                for (int k=0; k<layer_width; k++){
-                    vector<double> weight_vector;
-                    for (int j=0; j<previous_input_vector.size(); j++){
-                        weight_vector.push_back( (rand() / (double)RAND_MAX - 0.5) * 0.2);
-                    }
-                    weights.push_back(weight_vector);
-                }
+                vector<vector<double>> weights = initialize_weights(layer_width, previous_input_vector.size());
                 hidden_layers.push_back(Layer(layer_width, previous_input_vector, bias_vector, 
-                    weights, activation_function));
+                    weights, hidden_layer_activation_function));
                 previous_input_vector = hidden_layers.back().calculate_output_vector();
             }
-        }      
+
+            output_layer = Layer(output_layer_width, previous_input_vector, 
+                vector<double>(output_layer_width, 0.0), 
+                initialize_weights(output_layer_width, previous_input_vector.size()), 
+                output_activation_function
+            );
+            return output_layer.calculate_output_vector();
+        }
+
+        void calculate_loss(vector<double> target_vector, string loss_function)
+        {
+            double loss = 0.0;
+            if (loss_function == "mean_squared_error"){
+                for (int i=0; i<target_vector.size(); i++){
+                    loss += pow((target_vector[i] - output_layer.output_vector[i]), 2);
+                }
+                loss /= target_vector.size();
+            } else if (loss_function == "cross_entropy"){
+                for (int i=0; i<target_vector.size(); i++){
+                    loss -= target_vector[i] * log(output_layer.output_vector[i]);
+                }
+                loss /= target_vector.size();
+            } else {
+                cout << "Invalid loss function specified." << endl;
+            }
+            cout << "Loss: " << loss << endl;
+        }
 };
 
 

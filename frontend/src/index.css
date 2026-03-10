@@ -1,0 +1,46 @@
+@import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+@import 'tailwindcss';
+
+@theme {
+  --font-display: 'Sora', 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', Consolas, monospace;
+}
+
+:root {
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  font-family: 'Sora', 'Segoe UI', sans-serif;
+  background:
+    linear-gradient(160deg, #05070b 0%, #0b1120 48%, #090f16 100%),
+    radial-gradient(circle at 20% 20%, rgba(20, 184, 166, 0.2), transparent 36%),
+    radial-gradient(circle at 84% 12%, rgba(249, 115, 22, 0.18), transparent 30%);
+  color: #f4f4f5;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.animate-rise {
+  animation: rise 720ms cubic-bezier(0.2, 0.7, 0.1, 1) both;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
