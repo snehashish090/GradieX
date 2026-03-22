@@ -31,10 +31,10 @@ function App() {
         <nav className="mb-14 flex items-center justify-between">
           <div className="inline-flex items-center gap-3">
             <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-teal-500/20 text-lg font-black text-teal-200 ring-1 ring-teal-300/30">
-              N
+              G
             </span>
             <div>
-              <p className="font-display text-lg font-semibold leading-none text-zinc-100">NeuralCpp</p>
+              <p className="font-display text-lg font-semibold leading-none text-zinc-100">GradieX</p>
               <p className="text-xs uppercase tracking-[0.2em] text-zinc-400">Tooling for fast ML systems</p>
             </div>
           </div>
@@ -55,7 +55,7 @@ function App() {
               Build neural systems that run as fast as your compiler.
             </h1>
             <p className="mt-6 max-w-xl text-base text-zinc-300 sm:text-lg">
-              NeuralCpp gives you modern deep-learning workflows while keeping the reliability and speed of native C++.
+              GradieX gives you modern deep-learning workflows while keeping the reliability and speed of native C++.
             </p>
             <div id="get-started" className="mt-8 flex flex-wrap gap-3">
               <button className="rounded-full bg-teal-400 px-6 py-3 font-semibold text-zinc-950 transition hover:bg-teal-300">
@@ -64,6 +64,13 @@ function App() {
               <button className="rounded-full border border-zinc-700 bg-zinc-900 px-6 py-3 font-semibold text-zinc-100 transition hover:border-orange-300/50 hover:text-orange-200">
                 View Examples
               </button>
+              <a
+                href="/downloads/gradiex-linux-x86_64"
+                download
+                className="rounded-full border border-teal-400/40 bg-zinc-900 px-6 py-3 font-semibold text-teal-200 transition hover:border-teal-300 hover:text-teal-100"
+              >
+                Download Linux Binary
+              </a>
             </div>
           </div>
 
