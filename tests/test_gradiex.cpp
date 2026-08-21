@@ -350,7 +350,7 @@ int main() {
         auto xor_rate = [](const string& act, int width, int trials) {
             int solved = 0;
             for (int i = 0; i < trials; ++i) {
-                NeuralNetwork n(2,2,width,1,act,"sigmoid","binary_cross_entropy");
+                NeuralNetwork n(2,2,width,1,act,"sigmoid","binary_cross_entropy", 1000 + i);
                 { Hush h; n.train({{0,0},{0,1},{1,0},{1,1}},{{0},{1},{1},{0}},4000,0.05,1000000); }
                 if (n.predict({0,0})[0]<0.1 && n.predict({0,1})[0]>0.9
                  && n.predict({1,0})[0]>0.9 && n.predict({1,1})[0]<0.1) ++solved;
