@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, dev ]
+  pull_request:
+    branches: [ main, dev ]
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / ${{ matrix.cxx }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,  cxx: g++ }
+          - { os: ubuntu-latest,  cxx: clang++ }
+          - { os: macos-latest,   cxx: clang++ }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compiler version
+        run: ${{ matrix.cxx }} --version
+
+      - name: Build examples
+        run: >-
+          ${{ matrix.cxx }} -std=c++17 -O2 -Wall -Wextra -pedantic -Werror
+          main.cpp -o gradiex
+
+      - name: Build test suite
+        run: >-
+          ${{ matrix.cxx }} -std=c++17 -O2 -Wall -Wextra -pedantic -Werror
+          tests/test_gradiex.cpp -o test_gradiex
+
+      - name: Run test suite
+        run: ./test_gradiex
+
+      - name: Run examples
+        run: ./gradiex
+
+  sanitizers:
+    name: ASan + UBSan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build instrumented test suite
+        run: >-
+          g++ -std=c++17 -O1 -g -fsanitize=address,undefined
+          -fno-omit-frame-pointer -Wall -Wextra -pedantic
+          tests/test_gradiex.cpp -o san_test
+
+      - name: Run under sanitizers
+        env:
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: ./san_test
+
+  release-binary:
+    name: Linux x86_64 binary
+    runs-on: ubuntu-latest
+    needs: [ test ]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build release binary
+        run: >-
+          g++ -std=c++17 -O2 -Wall -Wextra -pedantic
+          main.cpp -o gradiex-linux-x86_64
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gradiex-linux-x86_64
+          path: gradiex-linux-x86_64
+          if-no-files-found: error

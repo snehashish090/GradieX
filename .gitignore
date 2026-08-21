@@ -1,0 +1,22 @@
+# Build outputs
+gradiex
+gradiex-*
+test_gradiex
+san_test
+san_main
+*.o
+*.out
+*.dSYM/
+build/
+
+# Trained models written by the examples
+*.gx
+
+# Datasets fetched for benchmarks
+optdigits.*
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+compile_commands.json
