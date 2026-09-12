@@ -1,0 +1,13 @@
+
+
+# Python / pybind11 build artifacts
+*.so
+*.pyd
+build/
+dist/
+*.egg-info/
+__pycache__/
+.venv-build/
+__editable__*
+.eggs/
+.vscode/

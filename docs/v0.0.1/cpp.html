@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html lang="en" >
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GradieX &mdash; C++ Library Reference — GradieX v0.0.1</title>
+<meta name="description" content="The engine lives entirely in headers under core/. There is no library to link and no build step of its own: include a header and compile.">
+<meta name="color-scheme" content="light dark">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Public+Sans:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="../assets/docs.css">
+</head>
+<body>
+
+<header class="site-header">
+  <a class="brand" href="index.html"><span class="brand-name">Gradie<span class="dot">X</span></span>
+    <span class="brand-sub">docs</span></a>
+  <div class="header-right">
+    <select class="version-select" data-version-select aria-label="Documentation version">
+      <option value="../v0.0.1/index.html" selected>v0.0.1 (current)</option>
+    </select>
+    <a class="ghlink" href="https://github.com/snehashish090/gradiexv2">GitHub</a>
+    <button class="icon-btn" type="button" data-theme-toggle
+            aria-label="Toggle dark mode"><svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg><svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></button>
+  </div>
+</header>
+
+<div class="layout">
+
+  <nav class="col-nav sticky-col" aria-label="Documentation">
+<div data-nav-scope>
+<input class="nav-search" type="search" placeholder="Filter…" aria-label="Filter navigation" data-nav-filter>
+<div class="nav-group"><p class="nav-title">Documentation</p><ul class="nav-list">
+<li><a href="index.html">Overview</a></li>
+<li><a href="cpp.html" class="current">C++ Library</a></li>
+<li><a href="python.html">Python Library</a></li>
+</ul></div>
+<div class="nav-group nav-group-toc"><p class="nav-title">On this page</p><ul class="nav-list numbered">
+<li><a href="#build">Building</a></li>
+<li><a href="#overview">Overview</a></li>
+<li><a href="#namespaces">Namespaces and Headers</a></li>
+<li><a href="#typedefs">Function Pointer Types</a></li>
+<li><a href="#layer">class core::Layer</a></li>
+<li><a href="#hiddenlayer">class core::HiddenLayer</a></li>
+<li><a href="#outputlayer">class core::OutputLayer</a></li>
+<li><a href="#network">class core::Network</a></li>
+<li><a href="#activations">Activation Functions</a></li>
+<li><a href="#initializers">Weight Initializers</a></li>
+<li><a href="#losses">Loss Functions</a></li>
+<li><a href="#weightlayout">Weight Storage Layout</a></li>
+<li><a href="#example">Complete Example</a></li>
+<li><a href="#tests">Test Suite</a></li>
+<li><a href="#bugs">Known Bugs and Limitations</a></li>
+<li><a href="#notsupported">Not Supported</a></li>
+</ul></div>
+<div class="nav-group"><p class="nav-title">Quick reference</p><ul class="nav-list">
+<li><a href="cpp.html#activations">Activations</a></li>
+<li><a href="cpp.html#losses">Losses</a></li>
+<li><a href="cpp.html#initializers">Initializers</a></li>
+<li><a href="cpp.html#weightlayout">Weight layout</a></li>
+<li><a href="python.html#errors">Python errors</a></li>
+<li><a href="cpp.html#bugs">Known bugs</a></li>
+</ul></div>
+<p class="nav-empty" hidden>No matches.</p>
+</div>
+  </nav>
+
+  <main class="content">
+    <details class="mobile-nav">
+      <summary>Menu</summary>
+      <div class="panel">
+<div data-nav-scope>
+<input class="nav-search" type="search" placeholder="Filter…" aria-label="Filter navigation" data-nav-filter>
+<div class="nav-group"><p class="nav-title">Documentation</p><ul class="nav-list">
+<li><a href="index.html">Overview</a></li>
+<li><a href="cpp.html" class="current">C++ Library</a></li>
+<li><a href="python.html">Python Library</a></li>
+</ul></div>
+<div class="nav-group"><p class="nav-title">On this page</p><ul class="nav-list numbered">
+<li><a href="#build">Building</a></li>
+<li><a href="#overview">Overview</a></li>
+<li><a href="#namespaces">Namespaces and Headers</a></li>
+<li><a href="#typedefs">Function Pointer Types</a></li>
+<li><a href="#layer">class core::Layer</a></li>
+<li><a href="#hiddenlayer">class core::HiddenLayer</a></li>
+<li><a href="#outputlayer">class core::OutputLayer</a></li>
+<li><a href="#network">class core::Network</a></li>
+<li><a href="#activations">Activation Functions</a></li>
+<li><a href="#initializers">Weight Initializers</a></li>
+<li><a href="#losses">Loss Functions</a></li>
+<li><a href="#weightlayout">Weight Storage Layout</a></li>
+<li><a href="#example">Complete Example</a></li>
+<li><a href="#tests">Test Suite</a></li>
+<li><a href="#bugs">Known Bugs and Limitations</a></li>
+<li><a href="#notsupported">Not Supported</a></li>
+</ul></div>
+<div class="nav-group"><p class="nav-title">Quick reference</p><ul class="nav-list">
+<li><a href="cpp.html#activations">Activations</a></li>
+<li><a href="cpp.html#losses">Losses</a></li>
+<li><a href="cpp.html#initializers">Initializers</a></li>
+<li><a href="cpp.html#weightlayout">Weight layout</a></li>
+<li><a href="python.html#errors">Python errors</a></li>
+<li><a href="cpp.html#bugs">Known bugs</a></li>
+</ul></div>
+<p class="nav-empty" hidden>No matches.</p>
+</div>
+      </div>
+    </details>
+    <div class="content-inner">
+<p class="eyebrow">Version 0.0.1</p>
+<h1>GradieX &mdash; C++ Library Reference</h1>
+<p class="lede">The engine lives entirely in headers under <code>core/</code>.  There is no library to
+link and no build step of its own: include a header and compile.</p>
+
+<h2 id="build"><a class="anchor" href="#build" aria-hidden="true">#</a>Building</h2>
+
+<p>C++20 is required.  <code>core/initializer.h</code> includes <code>&lt;numbers&gt;</code>,
+so C++17 will not compile.</p>
+
+<pre><code>clang++ -std=c++20 -O2 main.cpp -o main
+./main</code></pre>
+
+<p>No other flags are needed.  The <code>#pragma GCC unroll</code> directives in
+<code>core/activations.h</code> are accepted by both GCC and Apple clang; if your
+compiler warns about them, add <code>-Wno-unknown-pragmas</code>.</p>
+
+<h2 id="overview"><a class="anchor" href="#overview" aria-hidden="true">#</a>Overview</h2>
+
+<p>A network is a chain of <code>HiddenLayer</code> objects followed by an
+<code>OutputLayer</code>.  Each layer stores its weights as one flat
+<code>std::vector&lt;double&gt;</code> rather than a vector of vectors, so a layer's
+weights are contiguous in memory.</p>
+
+<p>
+Activation, initializer and loss behaviour are supplied as <strong>plain function
+pointers</strong>, not as virtual methods or template parameters.  Each layer holds
+five of them: an activation, its derivative, an initializer, a loss, and the
+loss derivative.
+
+<p>
+The order of operations for one training step is:
+
+<pre><code>forwardPass(x)
+    for each hidden layer:  calculateOutputs()
+    for the output layer:   calculateOutputs()
+
+backwardPass(y)
+    output layer:  computeErrorSignal(y), computeGradients()
+    hidden layers, last to first:
+                   computeErrorSignal(next width, next deltas, next weights)
+                   computeGradients()
+    all layers:    updateWeightsAndBiases(learningRate)</code></pre>
+
+<p>Note that <strong>no weights are updated until every error signal has been
+computed</strong>.  This matters: a hidden layer's error signal reads the
+<em>next</em> layer's weights, so updating a layer before propagating through it
+would corrupt every layer behind it.</p>
+
+<h2 id="namespaces"><a class="anchor" href="#namespaces" aria-hidden="true">#</a>Namespaces and Headers</h2>
+
+<div class="table-wrap">
+<table>
+<thead>
+<tr><th>Header</th><th>Namespace</th><th>Contents</th></tr>
+</thead>
+<tbody>
+<tr><td><code>core/activations.h</code></td><td><code>core::functions::activations</code></td><td>Activation functions and their derivatives</td></tr>
+<tr><td><code>core/initializer.h</code></td><td><code>core::functions::initializers</code></td><td>Weight initializers, shared RNG</td></tr>
+<tr><td><code>core/loss.h</code></td><td><code>core::functions::loss</code></td><td>Loss functions and their derivatives</td></tr>
+<tr><td><code>core/layer.h</code></td><td><code>core</code></td><td><code>Layer</code>, <code>HiddenLayer</code>, <code>OutputLayer</code></td></tr>
+<tr><td><code>core/network.h</code></td><td><code>core</code></td><td><code>Network</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<p>
+Including <code>core/network.h</code> pulls in everything.
+
+<h2 id="typedefs"><a class="anchor" href="#typedefs" aria-hidden="true">#</a>Function Pointer Types</h2>
+
+<dl class="api">
+
+<dt><strong><code>core::functions::activations::ActivationFunction</code></strong>
+<dd>
+<pre><code>double* __restrict__ (*)(const double* __restrict__ input,
+                        double* __restrict__ vectorScratchPad,
+                        size_t size)</code></pre>
+Applies an activation elementwise over <code>size</code> values, writing into
+<code>vectorScratchPad</code> and returning it.  The scratch pad is allocated once
+by the layer and reused, so the hot path performs no allocation.  The
+<code>__restrict__</code> qualifiers promise the compiler that input and output do
+not alias.
+
+<p>
+<dt><strong><code>core::functions::activations::ActivationFunctionDerivative</code></strong>
+<dd>
+Same signature.  Takes the <em>pre-activation</em> values
+(<code>z</code>), not the activated outputs.
+
+<p>
+<dt><strong><code>core::functions::initializers::initFunction</code></strong>
+<dd>
+<pre><code>double* (*)(double* __restrict__ vectorScratchPad,
+            size_t size, size_t size2)</code></pre>
+Fills <code>size * size2</code> values.  For <code>xavier</code> and <code>he</code> the two
+arguments are the fan-in and fan-out respectively.
+
+<p>
+<dt><strong><code>core::functions::loss::LossFunction</code></strong>
+<dd>
+<pre><code>double (*)(const double* __restrict__ actual,
+           const double* __restrict__ predicted,
+           size_t size)</code></pre>
+Returns a single scalar.  Note the argument order: <strong>target first, prediction
+second.</strong>
+
+<p>
+<dt><strong><code>core::functions::loss::LossFunctionDerivative</code></strong>
+<dd>
+<pre><code>double* (*)(const double* __restrict__ actual,
+            const double* __restrict__ predicted,
+            double* __restrict__ vectorScratchPad,
+            size_t size)</code></pre>
+Writes the gradient with respect to <code>predicted</code> into the scratch pad and
+returns it.
+
+</dl>
+
+<h2 id="layer"><a class="anchor" href="#layer" aria-hidden="true">#</a>class core::Layer</h2>
+
+<p>Defined in <code>core/layer.h</code>.  The base class for both layer kinds.  All
+members are <code>public</code>.</p>
+
+<h3 id="constructors"><a class="anchor" href="#constructors" aria-hidden="true">#</a>Constructors</h3>
+
+<dl class="api">
+<dt><strong><code>Layer() noexcept = default</code></strong>
+<dd>Leaves the object empty.  <strong class="warn-inline">Warning:</strong> the
+five function pointer members are <em>indeterminate</em> after this constructor,
+not null.  See <a href="#bugs">Known Bugs</a>, item 6.
+
+<p>
+<dt><strong><code>Layer(int width, int inputSize,
+       ActivationFunction, ActivationFunctionDerivative,
+       initFunction, LossFunction, LossFunctionDerivative)</code></strong>
+<dd>Sizes every internal buffer.  Does <em>not</em> initialize the weights; call
+<code>initializeWeightsAndBiases()</code> for that.
+</dl>
+
+<h3 id="data-members"><a class="anchor" href="#data-members" aria-hidden="true">#</a>Data Members</h3>
+
+<div class="table-wrap">
+<table>
+<thead>
+<tr><th>Member</th><th>Type</th><th>Size</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td><code>layerWidth</code></td><td><code>int</code></td><td>&mdash;</td><td>Number of neurons</td></tr>
+<tr><td><code>inputSize</code></td><td><code>int</code></td><td>&mdash;</td><td>Fan-in</td></tr>
+<tr><td><code>layerInputs</code></td><td><code>vector&lt;double&gt;</code></td><td><code>inputSize</code></td><td>Copy of the input from the most recent forward pass.  Needed by
+        <code>computeGradients()</code>.</td></tr>
+<tr><td><code>neuronOutputsUnactivated</code></td><td><code>vector&lt;double&gt;</code></td><td><code>layerWidth</code></td><td>Pre-activations, <code>z</code></td></tr>
+<tr><td><code>neuronOutputsActivated</code></td><td><code>vector&lt;double&gt;</code></td><td><code>layerWidth</code></td><td>Activations, <code>a</code></td></tr>
+<tr><td><code>neuronDeltas</code></td><td><code>vector&lt;double&gt;</code></td><td><code>layerWidth</code></td><td>Error signals, <code>dL/dz</code></td></tr>
+<tr><td><code>neuronWeights</code></td><td><code>vector&lt;double&gt;</code></td><td><code>layerWidth * inputSize</code></td><td>Flattened weight matrix.  See
+        <a href="#weightlayout">Weight Storage Layout</a>.</td></tr>
+<tr><td><code>neuronBiases</code></td><td><code>vector&lt;double&gt;</code></td><td><code>layerWidth</code></td><td>One bias per neuron</td></tr>
+<tr><td><code>neuronWeightGradients</code></td><td><code>vector&lt;double&gt;</code></td><td><code>layerWidth * inputSize</code></td><td>Gradients, same layout as the weights</td></tr>
+<tr><td><code>neuronBiasGradients</code></td><td><code>vector&lt;double&gt;</code></td><td><code>layerWidth</code></td><td>Bias gradients</td></tr>
+<tr><td><code>scratchPad1</code></td><td><code>vector&lt;double&gt;</code></td><td><code>inputSize * layerWidth</code></td><td>Scratch for the loss derivative</td></tr>
+<tr><td><code>scratchPad2</code></td><td><code>vector&lt;double&gt;</code></td><td><code>inputSize * layerWidth</code></td><td>Scratch for the activation derivative</td></tr>
+<tr><td><code>activationFunction</code></td><td colspan="2"><code>ActivationFunction</code></td><td>&nbsp;</td></tr>
+<tr><td><code>activationFunctionDerivative</code></td><td colspan="2"><code>ActivationFunctionDerivative</code></td><td>&nbsp;</td></tr>
+<tr><td><code>initialiser</code></td><td colspan="2"><code>initFunction</code></td><td>Note the British spelling</td></tr>
+<tr><td><code>lossFunction</code></td><td colspan="2"><code>LossFunction</code></td><td>Stored on every layer, but only used on the output layer</td></tr>
+<tr><td><code>lossFunctionDerivative</code></td><td colspan="2"><code>LossFunctionDerivative</code></td><td>&nbsp;</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>
+The scratch pads are only ever written up to <code>layerWidth</code> elements.  The
+declared size of <code>inputSize * layerWidth</code> is a known defect; see
+<a href="#bugs">Known Bugs</a>, item 7.
+
+<h3 id="member-functions"><a class="anchor" href="#member-functions" aria-hidden="true">#</a>Member Functions</h3>
+
+<dl class="api">
+
+<dt><strong><code>void initializeWeightsAndBiases()</code></strong>
+<dd>Calls the stored initializer over the whole weight array with
+<code>(inputSize, layerWidth)</code> as fan-in and fan-out, then sets every bias to
+zero.
+
+<p>
+<dt><strong><code>void calculateOutputs(const double* __restrict__ input)</code></strong>
+<dd>Copies <code>input</code> into <code>layerInputs</code>, computes
+<code>z[n] = sum_i w[n][i] * input[i] + b[n]</code> into
+<code>neuronOutputsUnactivated</code>, then applies the activation into
+<code>neuronOutputsActivated</code>.
+<p>
+<code>input</code> must point to at least <code>inputSize</code> doubles.  This is not
+checked.
+
+<p>
+<dt><strong><code>void computeGradients()</code></strong>
+<dd>Requires <code>neuronDeltas</code> to be current.  Writes
+<code>dL/dw[n][i] = delta[n] * layerInputs[i]</code> and
+<code>dL/db[n] = delta[n]</code>.
+<p>
+Gradients are <strong>assigned, not accumulated</strong>, so this class cannot express
+mini-batching as written.
+
+<p>
+<dt><strong><code>void updateWeightsAndBiases(double learningRate)</code></strong>
+<dd>Applies <code>w -= learningRate * dL/dw</code> and the same for biases.  Plain
+SGD; no momentum, no weight decay.
+
+<p>
+<dt><strong><code>void print() const</code></strong>
+<dd>Writes the layer's geometry, pre-activations, activations, deltas, weights
+and biases to <code>std::cout</code>.  For debugging.
+
+</dl>
+
+<h2 id="hiddenlayer"><a class="anchor" href="#hiddenlayer" aria-hidden="true">#</a>class core::HiddenLayer</h2>
+
+<code>class HiddenLayer : public Layer</code>, inheriting the constructors via
+<code>using Layer::Layer</code>.
+
+<dl class="api">
+<dt><strong><code>void computeErrorSignal(int nextLayerWidth,
+        const double* nextLayerDeltas,
+        const double* nextLayerWeights)</code></strong>
+<dd>
+Computes this layer's error signal from the next layer's:
+<pre><code>delta[n] = ( sum over m of nextDeltas[m] * nextWeights[m][n] ) * f'(z[n])</code></pre>
+The three arguments describe the layer <em>after</em> this one.  Because the next
+layer's fan-in equals this layer's width, <code>nextLayerWeights</code> is indexed
+as <code>nextWeights[m * this-&gt;layerWidth + n]</code> &mdash; note that the
+stride is <code>this->layerWidth</code>, not <code>this->inputSize</code>.
+</dl>
+
+<h2 id="outputlayer"><a class="anchor" href="#outputlayer" aria-hidden="true">#</a>class core::OutputLayer</h2>
+
+<code>class OutputLayer : public Layer</code>, inheriting the constructors.
+
+<dl class="api">
+<dt><strong><code>void computeErrorSignal(const double* __restrict__ target)</code></strong>
+<dd>
+Computes
+<pre><code>delta[n] = dL/da[n] * f'(z[n])</code></pre>
+by calling the loss derivative into <code>scratchPad1</code> and the activation
+derivative into <code>scratchPad2</code>, then multiplying elementwise.
+<p>
+<code>target</code> must point to at least <code>layerWidth</code> doubles.  This is not
+checked.
+<div class="callout callout-warn"><span class="callout-label">Warning</span><p>this elementwise product cannot
+express softmax, whose Jacobian is a dense matrix.  See
+<a href="#bugs">Known Bugs</a>, item 2.</p></div>
+</dl>
+
+<h2 id="network"><a class="anchor" href="#network" aria-hidden="true">#</a>class core::Network</h2>
+
+<p>Defined in <code>core/network.h</code>.  All members are <code>public</code>.</p>
+
+<h3 id="data-members"><a class="anchor" href="#data-members" aria-hidden="true">#</a>Data Members</h3>
+
+<div class="table-wrap">
+<table>
+<thead>
+<tr><th>Member</th><th>Type</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td><code>numHiddenLayers</code></td><td><code>int</code></td><td>Slot count fixed at construction</td></tr>
+<tr><td><code>numOutputLayers</code></td><td><code>int</code></td><td>Defaults to 1.  Values above 1 are not usable; see
+        <a href="#bugs">Known Bugs</a>, item 3.</td></tr>
+<tr><td><code>learningRate</code></td><td><code>double</code></td><td>Defaults to 0.01.  May be changed between steps.</td></tr>
+<tr><td><code>hiddenLayers</code></td><td><code>vector&lt;HiddenLayer*&gt;</code></td><td>Owned by the network; freed in the destructor</td></tr>
+<tr><td><code>outputLayers</code></td><td><code>vector&lt;OutputLayer*&gt;</code></td><td>Owned by the network; freed in the destructor</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout callout-warn"><span class="callout-label">Warning</span><p><code>Network</code> owns raw pointers
+and defines a destructor but no copy constructor or copy assignment operator.
+Copying a <code>Network</code> therefore double-frees every layer.  Pass it by
+reference, or hold it in a <code>std::unique_ptr</code>.</p></div>
+
+<h3 id="member-functions"><a class="anchor" href="#member-functions" aria-hidden="true">#</a>Member Functions</h3>
+
+<dl class="api">
+
+<dt><strong><code>Network()</code></strong>
+<dd>Zero hidden layers, one output slot, learning rate 0.01.  The layer vectors
+are left empty, so the slots must not be used.
+
+<p>
+<dt><strong><code>Network(int numHiddenLayers, int numOutputLayers, double learningRate)</code></strong>
+<dd>Resizes both layer vectors to the given counts.  Every slot is a null
+pointer until filled.
+
+<p>
+<dt><strong><code>void addHiddenLayer(int layerIndex, int width, int inputSize,
+        ActivationFunction, ActivationFunctionDerivative,
+        initFunction, LossFunction, LossFunctionDerivative)</code></strong>
+<dd>Allocates a <code>HiddenLayer</code> with <code>new</code> and stores it at
+<code>layerIndex</code>.
+<div class="callout callout-warn"><span class="callout-label">Warning</span><p><code>layerIndex</code> is not
+bounds-checked.  An out-of-range index writes past the end of the vector.</p></div>
+
+<p>
+<dt><strong><code>void addOutputLayer(int layerIndex, ...)</code></strong>
+<dd>As above, for the output layer.  Same lack of bounds checking.
+
+<p>
+<dt><strong><code>void initializeAllWeightsAndBiases()</code></strong>
+<dd>Calls <code>initializeWeightsAndBiases()</code> on every slot.
+<div class="callout callout-warn"><span class="callout-label">Warning</span><p>dereferences every slot without a
+null check, so this crashes if any slot was never filled.</p></div>
+
+<p>
+<dt><strong><code>void forwardPass(const double* inputs)</code></strong>
+<dd>Runs each hidden layer in order, then each output layer, feeding each
+layer's activations to the next.  Read the result from
+<code>outputLayers[0]-&gt;neuronOutputsActivated</code>.
+
+<p>
+<dt><strong><code>void backwardPass(std::vector&lt;double&gt;&amp; targetOutputs)</code></strong>
+<dd>Computes error signals and gradients for the output layer, then for the
+hidden layers from last to first, then applies the weight update to every
+layer.  The argument is a non-const reference but is not modified.
+
+<p>
+<dt><strong><code>void runEpoch(std::vector&lt;double&gt;&amp; inputs,
+        std::vector&lt;double&gt;&amp; targetOutputs)</code></strong>
+<dd>One <code>forwardPass</code> followed by one <code>backwardPass</code>.  Despite the
+name this processes a single sample, not an epoch.
+
+<p>
+<dt><strong><code>double computeLoss(const std::vector&lt;double&gt;&amp; targetOutputs) const</code></strong>
+<dd>Returns the sum of squared differences between the output activations and
+the targets.
+<div class="callout callout-warn"><span class="callout-label">Warning</span><p>this ignores the layer's configured
+loss function and always computes squared error.  Training on
+<code>binaryCrossEntropy</code> and reading the loss from here reports a different
+quantity from the one being minimised.  See <a href="#bugs">Known Bugs</a>,
+item 1.</p></div>
+
+<p>
+<dt><strong><code>void train(std::vector&lt;std::vector&lt;double&gt;&gt;&amp; inputs,
+        std::vector&lt;std::vector&lt;double&gt;&gt;&amp; targetOutputs,
+        int numEpochs)</code></strong>
+<dd>Per-sample SGD.  For each epoch, visits every sample in fixed order, calls
+<code>runEpoch</code>, accumulates <code>computeLoss</code>, and prints the mean to
+<code>std::cout</code>.  Throws <code>std::invalid_argument</code> if the two
+containers differ in length; returns immediately if <code>inputs</code> is empty.
+<p>
+There is no way to suppress the per-epoch printing, no shuffling, and no return
+value.  The Python binding reimplements this loop; see
+<a href="python.html#train">Network.train</a>.
+
+<p>
+<dt><strong><code>void printAllLayers()</code></strong>
+<dd>Calls <code>print()</code> on every layer.
+
+<p>
+<dt><strong><code>~Network()</code></strong>
+<dd><code>delete</code>s every layer in both vectors.
+
+</dl>
+
+<h2 id="activations"><a class="anchor" href="#activations" aria-hidden="true">#</a>Activation Functions</h2>
+
+<p>Namespace <code>core::functions::activations</code>.  All are elementwise except
+<code>softmax</code>.  Each derivative takes the pre-activation <code>z</code>.</p>
+
+<div class="table-wrap">
+<table>
+<thead>
+<tr><th>Function</th><th>Derivative</th><th>Definition</th></tr>
+</thead>
+<tbody>
+<tr><td><code>sigmoid</code></td><td><code>sigmoidDerivative</code></td><td><code>1 / (1 + exp(-x))</code>, derivative <code>s(x)(1 - s(x))</code></td></tr>
+<tr><td><code>relu</code></td><td><code>reluDerivative</code></td><td><code>max(0, x)</code>, derivative 1 if <code>x &gt; 0</code> else 0</td></tr>
+<tr><td><code>leakyRelu</code></td><td><code>leakyReluDerivative</code></td><td><code>x</code> if <code>x &gt; 0</code> else <code>0.01 * x</code></td></tr>
+<tr><td><code>tanh</code></td><td><code>tanhDerivative</code></td><td><code>std::tanh(x)</code>, derivative <code>1 - tanh(x)^2</code></td></tr>
+<tr><td><code>swish</code></td><td><code>swishDerivative</code></td><td><code>x * sigmoid(x)</code>, derivative
+        <code>s + x*s*(1-s)</code></td></tr>
+<tr><td><code>gelu</code></td><td><code>geluDerivative</code></td><td>tanh approximation:
+        <code>0.5*x*(1 + tanh(sqrt(2/pi)*(x + 0.044715*x^3)))</code></td></tr>
+<tr class="row-warn"><td><code>softmax</code></td><td><em>none</em></td><td><code>exp(z_i - max z) / sum exp(z_j - max z)</code>.
+        <strong>No derivative is implemented</strong>, so a softmax layer cannot be
+        trained.  See <a href="#bugs">Known Bugs</a>, item 2.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>
+<code>softmax</code> subtracts the row maximum before exponentiating, so it does not
+overflow.  <code>sigmoid</code> does <em>not</em> branch on the sign of its argument
+and evaluates <code>exp(-x)</code> directly.
+
+<h2 id="initializers"><a class="anchor" href="#initializers" aria-hidden="true">#</a>Weight Initializers</h2>
+
+<p>Namespace <code>core::functions::initializers</code>.</p>
+
+<dl class="api">
+<dt><strong><code>double* zeros(double* pad, size_t size, size_t size2)</code></strong>
+<dd>Sets <code>size * size2</code> values to zero.
+
+<p>
+<dt><strong><code>double* xavier(double* pad, size_t fanIn, size_t fanOut)</code></strong>
+<dd>Normal distribution with standard deviation
+<code>sqrt(2 / (fanIn + fanOut))</code>.  Suited to <code>sigmoid</code> and
+<code>tanh</code>.
+
+<p>
+<dt><strong><code>double* he(double* pad, size_t fanIn, size_t fanOut)</code></strong>
+<dd>Normal distribution with standard deviation <code>sqrt(2 / fanIn)</code>.
+Suited to <code>relu</code> and its relatives.
+
+<p>
+<dt><strong><code>std::mt19937&amp; get_generator()</code></strong>
+<dd>Returns the shared generator, a function-local <code>static</code> seeded once
+from <code>std::random_device</code>.
+<div class="callout callout-warn"><span class="callout-label">Warning</span><p>there is no way to set the seed, so
+no run is reproducible.  See <a href="#bugs">Known Bugs</a>, item 8.</p></div>
+</dl>
+
+<h2 id="losses"><a class="anchor" href="#losses" aria-hidden="true">#</a>Loss Functions</h2>
+
+<p>Namespace <code>core::functions::loss</code>.  Remember the argument order:
+<code>(actual, predicted, size)</code>.</p>
+
+<div class="table-wrap">
+<table>
+<thead>
+<tr><th>Function</th><th>Derivative</th><th>Notes</th></tr>
+</thead>
+<tbody>
+<tr><td><code>mse</code></td><td><code>mseDerivative</code></td><td>Mean squared error; averaged over <code>size</code></td></tr>
+<tr><td><code>mae</code></td><td><code>maeDerivative</code></td><td>Mean absolute error.  The subgradient at zero is taken as 0.</td></tr>
+<tr><td><code>huber</code></td><td><code>huberDerivative</code></td><td>Huber loss with <code>delta</code> fixed at 1.0 as a
+        <code>constexpr</code>; not configurable</td></tr>
+<tr><td><code>binaryCrossEntropy</code></td><td><code>binaryCrossEntropyDerivative</code></td><td>Predictions clamped into
+        <code>[1e-12, 1 - 1e-12]</code>; averaged over <code>size</code></td></tr>
+<tr><td><code>crossEntropy</code></td><td><code>crossEntropyDerivative</code></td><td>Categorical cross entropy; <strong>summed</strong>, not averaged, which is the
+        usual convention for a one-hot target.  Predictions floored at
+        <code>1e-12</code>.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>
+<code>crossEntropy</code> is intended to pair with a softmax output.  Because no
+softmax derivative exists, that pairing cannot currently be trained, and
+<code>crossEntropyDerivative</code> divides by the prediction &mdash; which
+approaches zero for a confidently wrong answer.
+
+<h2 id="weightlayout"><a class="anchor" href="#weightlayout" aria-hidden="true">#</a>Weight Storage Layout</h2>
+
+<code>neuronWeights</code> is one flat array in row-major order.  The weight
+connecting input <code>i</code> to neuron <code>n</code> is at:
+
+<pre><code>neuronWeights[n * inputSize + i]</code></pre>
+
+<p>so one neuron's weights are contiguous.  <code>neuronWeightGradients</code> uses the
+same layout.</p>
+
+<p>
+This matters when reading another layer's weights.  In
+<code>HiddenLayer::computeErrorSignal</code> the stride over the <em>next</em> layer's
+matrix is that layer's fan-in, which equals <em>this</em> layer's width:
+
+<pre><code>nextLayerWeights[m * this-&gt;layerWidth + n]</code></pre>
+
+<p>Using <code>inputSize</code> there instead of <code>layerWidth</code> is a natural
+mistake and produces a network that trains plausibly and is silently wrong.</p>
+
+<h2 id="example"><a class="anchor" href="#example" aria-hidden="true">#</a>Complete Example</h2>
+
+<p>A two-input, one-hidden-layer network trained on a linearly separable set.</p>
+
+<pre><code>#include &lt;iostream&gt;
+#include &lt;vector&gt;
+#include "core/network.h"
+
+int main()
+{
+    namespace act  = core::functions::activations;
+    namespace ini  = core::functions::initializers;
+    namespace loss = core::functions::loss;
+
+std::vector&lt;std::vector&lt;double&gt;&gt; X = {
+        {0.1, 0.2}, {0.8, 0.9}, {0.2, 0.1}, {0.9, 0.7}
+    };
+    std::vector&lt;std::vector&lt;double&gt;&gt; Y = {
+        {0.0}, {1.0}, {0.0}, {1.0}
+    };
+
+// 1 hidden layer, 1 output layer, learning rate 0.05
+    core::Network net(1, 1, 0.05);
+
+net.addHiddenLayer(0, /* width */ 4, /* inputSize */ 2,
+                       act::tanh, act::tanhDerivative,
+                       ini::xavier,
+                       loss::mse, loss::mseDerivative);
+
+net.addOutputLayer(0, /* width */ 1, /* inputSize */ 4,
+                       act::sigmoid, act::sigmoidDerivative,
+                       ini::xavier,
+                       loss::mse, loss::mseDerivative);
+
+net.initializeAllWeightsAndBiases();
+    net.train(X, Y, 2000);
+
+net.forwardPass(X[1].data());
+    std::cout &lt;&lt; "prediction: "
+              &lt;&lt; net.outputLayers[0]-&gt;neuronOutputsActivated[0]
+              &lt;&lt; "\n";
+    return 0;
+}</code></pre>
+
+<p>Two things to note.  The output layer's <code>inputSize</code> must equal the
+hidden layer's <code>width</code>; nothing checks this.  And the activation and its
+derivative are passed as two separate arguments, so an inconsistent pair such as
+<code>act::sigmoid</code> with <code>act::reluDerivative</code> compiles without
+complaint.</p>
+
+<h2 id="tests"><a class="anchor" href="#tests" aria-hidden="true">#</a>Test Suite</h2>
+
+<pre><code>./tests/run_tests.sh             # plain build
+./tests/run_tests.sh --asan      # with AddressSanitizer and UBSan
+./tests/run_tests.sh --asan Grad  # only tests whose name contains "Grad"</code></pre>
+
+<p>The suite covers <code>core/layer.h</code> and <code>core/network.h</code> separately
+and exits non-zero on failure.</p>
+
+<p>
+<strong>Several tests fail by design.</strong>  They are executable specifications for the
+bugs listed below, each reporting through <code>FAIL_WITH_NOTE</code> with the
+defect and the fix.  A green run is the goal, not the current state.
+
+<h2 id="bugs"><a class="anchor" href="#bugs" aria-hidden="true">#</a>Known Bugs and Limitations</h2>
+
+<ol>
+
+<li><strong><code>computeLoss</code> ignores the configured loss.</strong>
+It always sums squared error, so the reported loss is not the quantity being
+minimised unless you configured <code>mse</code>.
+
+<p><li><strong>Softmax cannot be trained.</strong>
+<code>softmax</code> has a forward implementation but no derivative.  Its Jacobian
+is a dense matrix, which the scalar-in / scalar-out derivative signature cannot
+express.  The correct fix is to fuse it with categorical cross entropy, where
+the chain collapses to <code>dL/dz = p - y</code>, and to add an entry point that
+accepts gradients already with respect to <code>z</code>.
+
+<p><li><strong>Only the first output layer back-propagates.</strong>
+<code>backwardPass</code> reads <code>outputLayers[0]</code> when propagating into the
+hidden stack, so with <code>numOutputLayers &gt; 1</code> the other heads' gradients
+are silently discarded.
+
+<p><li><strong><code>addHiddenLayer</code> and <code>addOutputLayer</code> do not
+bounds-check <code>layerIndex</code>.</strong>
+An out-of-range index writes past the end of the layer vector.
+
+<p><li><strong><code>initializeAllWeightsAndBiases</code> dereferences unfilled slots.</strong>
+Constructing a <code>Network</code> with <em>n</em> hidden slots and filling fewer
+than <em>n</em> crashes.
+
+<p><li><strong>The default <code>Layer</code> constructor leaves function pointers
+indeterminate.</strong>
+<code>Layer() noexcept = default</code> gives no member initialisers, so
+<code>activationFunction</code> and the rest hold garbage rather than null.  Calling
+<code>calculateOutputs()</code> on such an object jumps to an arbitrary address.
+The fix is <code>= nullptr</code> initialisers on all five.
+
+<p><li><strong>The scratch pads are the wrong size.</strong>
+Both are declared <code>inputSize * width</code> but only <code>layerWidth</code>
+elements are ever used.  That overallocates by a factor of <code>inputSize</code>
+&mdash; and is simultaneously too <em>short</em> when <code>inputSize</code> is zero.
+They should be <code>width</code>.
+
+<p><li><strong>No seed control.</strong>
+<code>get_generator()</code> seeds once from <code>std::random_device</code> and cannot
+be reseeded, so weight initialisation is never reproducible.
+
+<p><li><strong>Hidden layers carry an unused loss function.</strong>
+Every <code>Layer</code> stores a loss and its derivative, but only the output layer
+uses them.  The constructor still requires both.
+
+<p><li><strong>Activations and their derivatives are independent arguments.</strong>
+Nothing checks that they match, so a mismatched pair compiles and trains
+incorrectly.  The Python binding avoids this by selecting matched pairs by
+name.
+
+<p><li><strong><code>Network</code> is unsafe to copy.</strong>
+It owns raw pointers and has a destructor but no copy constructor or
+assignment operator.
+
+<p><li><strong>Gradients are assigned, not accumulated.</strong>
+<code>computeGradients</code> overwrites, and <code>backwardPass</code> applies the
+update immediately, so mini-batching cannot be expressed without changing both.
+
+</ol>
+
+<h2 id="notsupported"><a class="anchor" href="#notsupported" aria-hidden="true">#</a>Not Supported</h2>
+
+<p>Optimizers other than plain SGD (no momentum, no Adam, no learning rate
+schedule), mini-batching, L2 weight decay, dropout, train/validation split,
+early stopping, per-epoch loss history, model save and load, a trainable
+softmax output, convolution, recurrence, attention, embeddings, skip
+connections, batch or layer normalization, sparse input, streaming datasets,
+GPU, threading, and SIMD.  The inner loops are scalar <code>double</code>
+arithmetic.</p>
+
+<p>
+See <code>TODO.md</code> in the repository root for measured performance work in
+priority order.
+    </div>
+  </main>
+
+  <aside class="col-toc sticky-col" aria-label="On this page">
+<div class="nav-group">
+<p class="nav-title">On this page</p>
+<ul class="toc-list">
+<li><a href="#build">Building</a></li>
+<li><a href="#overview">Overview</a></li>
+<li><a href="#namespaces">Namespaces and Headers</a></li>
+<li><a href="#typedefs">Function Pointer Types</a></li>
+<li><a href="#layer">class core::Layer</a></li>
+<li><a href="#hiddenlayer">class core::HiddenLayer</a></li>
+<li><a href="#outputlayer">class core::OutputLayer</a></li>
+<li><a href="#network">class core::Network</a></li>
+<li><a href="#activations">Activation Functions</a></li>
+<li><a href="#initializers">Weight Initializers</a></li>
+<li><a href="#losses">Loss Functions</a></li>
+<li><a href="#weightlayout">Weight Storage Layout</a></li>
+<li><a href="#example">Complete Example</a></li>
+<li><a href="#tests">Test Suite</a></li>
+<li><a href="#bugs">Known Bugs and Limitations</a></li>
+<li><a href="#notsupported">Not Supported</a></li>
+</ul>
+</div>
+
+<div class="nav-group">
+<p class="nav-title">Project</p>
+<ul class="side-links">
+<li><a href="https://github.com/snehashish090/gradiexv2">gradiexv2 <span class="meta">(this one)</span></a></li>
+<li><a href="https://github.com/snehashish090/GradieX">GradieX v1</a></li>
+<li><a href="../../TODO.md">Performance TODO</a></li>
+<li><a href="../../README.md">README</a></li>
+</ul>
+</div>
+
+<div class="nav-group">
+<p class="nav-title">Built with</p>
+<ul class="side-links">
+<li><a href="https://pybind11.readthedocs.io/">pybind11</a></li>
+<li><a href="https://numpy.org/doc/stable/">NumPy</a></li>
+<li><a href="https://en.cppreference.com/">cppreference</a></li>
+</ul>
+</div>
+
+<div class="nav-group">
+<p class="nav-title">See also</p>
+<ul class="side-links">
+<li><a href="https://pytorch.org/docs/stable/">PyTorch</a></li>
+<li><a href="https://eigen.tuxfamily.org/">Eigen</a></li>
+<li><a href="https://www.openblas.net/">OpenBLAS</a></li>
+<li><a href="https://github.com/flame/blis">BLIS</a></li>
+<li><a href="https://developer.arm.com/architectures/instruction-sets/intrinsics/">ARM intrinsics</a></li>
+</ul>
+</div>
+
+<div class="nav-group">
+<p class="nav-title">Author</p>
+<ul class="side-links">
+<li><a href="https://github.com/snehashish090">Snehashish Laskar</a></li>
+<!-- Add further personal links here. -->
+</ul>
+</div>
+  </aside>
+
+</div>
+
+<footer class="site-footer">
+  <div class="site-footer-inner">
+    <span>GradieX <span class="pill">v0.0.1</span></span>
+    <span>MIT licensed</span>
+    <span class="credit">Developed by <a href="https://github.com/snehashish090">Snehashish Laskar</a></span>
+    <span class="spacer"><a href="../../docs/index.html">All versions</a></span>
+  </div>
+</footer>
+
+<script src="../assets/docs.js" defer></script>
+</body>
+</html>

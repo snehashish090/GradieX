@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en" >
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GradieX Documentation — GradieX v0.0.1</title>
+<meta name="description" content="A feedforward neural network engine written from scratch in C++20 with no external dependencies, plus Python bindings via pybind11.">
+<meta name="color-scheme" content="light dark">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Public+Sans:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="../assets/docs.css">
+</head>
+<body>
+
+<header class="site-header">
+  <a class="brand" href="index.html"><span class="brand-name">Gradie<span class="dot">X</span></span>
+    <span class="brand-sub">docs</span></a>
+  <div class="header-right">
+    <select class="version-select" data-version-select aria-label="Documentation version">
+      <option value="../v0.0.1/index.html" selected>v0.0.1 (current)</option>
+    </select>
+    <a class="ghlink" href="https://github.com/snehashish090/gradiexv2">GitHub</a>
+    <button class="icon-btn" type="button" data-theme-toggle
+            aria-label="Toggle dark mode"><svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg><svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></button>
+  </div>
+</header>
+
+<div class="layout">
+
+  <nav class="col-nav sticky-col" aria-label="Documentation">
+<div data-nav-scope>
+<input class="nav-search" type="search" placeholder="Filter…" aria-label="Filter navigation" data-nav-filter>
+<div class="nav-group"><p class="nav-title">Documentation</p><ul class="nav-list">
+<li><a href="index.html" class="current">Overview</a></li>
+<li><a href="cpp.html">C++ Library</a></li>
+<li><a href="python.html">Python Library</a></li>
+</ul></div>
+<div class="nav-group nav-group-toc"><p class="nav-title">On this page</p><ul class="nav-list numbered">
+<li><a href="#start">Getting Started</a></li>
+<li><a href="#reference">Reference</a></li>
+<li><a href="#glance">At a Glance</a></li>
+<li><a href="#state">Project State</a></li>
+</ul></div>
+<div class="nav-group"><p class="nav-title">Quick reference</p><ul class="nav-list">
+<li><a href="cpp.html#activations">Activations</a></li>
+<li><a href="cpp.html#losses">Losses</a></li>
+<li><a href="cpp.html#initializers">Initializers</a></li>
+<li><a href="cpp.html#weightlayout">Weight layout</a></li>
+<li><a href="python.html#errors">Python errors</a></li>
+<li><a href="cpp.html#bugs">Known bugs</a></li>
+</ul></div>
+<p class="nav-empty" hidden>No matches.</p>
+</div>
+  </nav>
+
+  <main class="content">
+    <details class="mobile-nav">
+      <summary>Menu</summary>
+      <div class="panel">
+<div data-nav-scope>
+<input class="nav-search" type="search" placeholder="Filter…" aria-label="Filter navigation" data-nav-filter>
+<div class="nav-group"><p class="nav-title">Documentation</p><ul class="nav-list">
+<li><a href="index.html" class="current">Overview</a></li>
+<li><a href="cpp.html">C++ Library</a></li>
+<li><a href="python.html">Python Library</a></li>
+</ul></div>
+<div class="nav-group"><p class="nav-title">On this page</p><ul class="nav-list numbered">
+<li><a href="#start">Getting Started</a></li>
+<li><a href="#reference">Reference</a></li>
+<li><a href="#glance">At a Glance</a></li>
+<li><a href="#state">Project State</a></li>
+</ul></div>
+<div class="nav-group"><p class="nav-title">Quick reference</p><ul class="nav-list">
+<li><a href="cpp.html#activations">Activations</a></li>
+<li><a href="cpp.html#losses">Losses</a></li>
+<li><a href="cpp.html#initializers">Initializers</a></li>
+<li><a href="cpp.html#weightlayout">Weight layout</a></li>
+<li><a href="python.html#errors">Python errors</a></li>
+<li><a href="cpp.html#bugs">Known bugs</a></li>
+</ul></div>
+<p class="nav-empty" hidden>No matches.</p>
+</div>
+      </div>
+    </details>
+    <div class="content-inner">
+<p class="eyebrow">Version 0.0.1</p>
+<h1>GradieX Documentation</h1>
+<p class="lede">A feedforward neural network engine written from scratch in C++20 &mdash; no BLAS,
+no Eigen, no external dependencies &mdash; with Python bindings via pybind11.</p>
+
+<h2 id="start"><a class="anchor" href="#start" aria-hidden="true">#</a>Getting Started</h2>
+
+<p>The engine is header-only, so the C++ side needs no build step of its own:</p>
+
+<pre><code>#include "core/network.h"</code></pre>
+
+<p>Then compile as a single translation unit:</p>
+
+<pre><code>clang++ -std=c++20 -O2 main.cpp -o main</code></pre>
+
+<p>For Python, build the extension module from the repository root:</p>
+
+<pre><code>pip install .</code></pre>
+
+<p>Then use it from Python:</p>
+
+<pre><code>import numpy as np, gradiex
+
+net = gradiex.Network(learning_rate=0.5)
+net.add_hidden(8, input_size=2, activation="tanh", init="xavier")
+net.add_output(1, activation="sigmoid", loss="mse")
+net.build()
+
+history = net.train(X, Y, epochs=4000, shuffle=True, seed=42)</code></pre>
+
+<h2 id="reference"><a class="anchor" href="#reference" aria-hidden="true">#</a>Reference</h2>
+
+<dl class="plain">
+<dt><strong><a href="cpp.html">The C++ Library</a></strong>
+<dd>The header-only engine in <code>core/</code>.  Namespaces, the function pointer
+    types, the <code>Layer</code> hierarchy, <code>Network</code>, and the activation,
+    initializer and loss catalogues.  Sixteen sections, plus a list of known
+    bugs.
+<p>
+<dt><strong><a href="python.html">The Python Library</a></strong>
+<dd>The <code>gradiex</code> extension module.  Installation, the
+    <code>Network</code> class, array conventions, and the guarantees the binding
+    adds on top of the engine.  Twelve sections, plus troubleshooting.
+</dl>
+
+<p>
+If you are looking for something specific:
+
+<ul>
+<li><a href="cpp.html#build">Building the C++ library</a></li>
+<li><a href="python.html#install">Installing the Python module</a></li>
+<li><a href="cpp.html#activations">Activation function catalogue</a></li>
+<li><a href="cpp.html#losses">Loss function catalogue</a></li>
+<li><a href="cpp.html#weightlayout">How weights are stored</a></li>
+<li><a href="python.html#errors">Errors the Python binding raises</a></li>
+<li><a href="python.html#troubleshooting">Troubleshooting</a></li>
+<li><a href="cpp.html#bugs">Known bugs and limitations</a></li>
+</ul>
+
+<h2 id="glance"><a class="anchor" href="#glance" aria-hidden="true">#</a>At a Glance</h2>
+
+<div class="table-wrap">
+<table>
+<thead>
+<tr><th>Item</th><th>Value</th></tr>
+</thead>
+<tbody>
+<tr><td>Language</td><td>C++20</td></tr>
+<tr><td>Scalar type</td><td><code>double</code> throughout</td></tr>
+<tr><td>Dependencies</td><td>None (C++ standard library only)</td></tr>
+<tr><td>Python binding</td><td>pybind11, Python 3.9 or later</td></tr>
+<tr><td>Layout</td><td>Header-only; <code>core/</code> compiles into the caller</td></tr>
+<tr><td>Training</td><td>Per-sample stochastic gradient descent</td></tr>
+<tr><td>Activations</td><td>sigmoid, relu, leaky_relu, tanh, swish, gelu</td></tr>
+<tr><td>Losses</td><td>mse, mae, huber, binary cross entropy, cross entropy</td></tr>
+<tr><td>Initializers</td><td>zeros, xavier, he</td></tr>
+<tr><td>License</td><td>MIT</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="state"><a class="anchor" href="#state" aria-hidden="true">#</a>Project State</h2>
+
+<p>This is version 2 of the engine, a rewrite of
+<a href="https://github.com/snehashish090/GradieX">GradieX v1</a>.  The object
+hierarchy was flattened from <code>Network &#8594; Layer &#8594; Neuron</code> down to
+<code>Network &#8594; Layer &#8594; vectors</code>, and the weights were flattened into
+one contiguous array per layer to avoid per-neuron heap allocation.</p>
+
+<p>
+It is <strong>not</strong> a superset of v1.  Several features present there have not been
+carried across yet: model save and load, mini-batching, L2 weight decay,
+dropout, a train/validation split, seeded reproducibility, and a trainable
+softmax output.  See <a href="cpp.html#notsupported">Not Supported</a> for the
+full list, and <a href="cpp.html#bugs">Known Bugs</a> for defects that are
+documented rather than fixed.
+
+<p>
+The test suite under <code>tests/</code> deliberately reports several failures.
+Those tests are executable specifications for the bugs above, each explaining
+the defect and the fix through <code>FAIL_WITH_NOTE</code>.
+
+<p>
+Performance work is tracked separately in <a href="../../TODO.md">TODO.md</a>,
+ordered by measured payoff.
+    </div>
+  </main>
+
+  <aside class="col-toc sticky-col" aria-label="On this page">
+<div class="nav-group">
+<p class="nav-title">On this page</p>
+<ul class="toc-list">
+<li><a href="#start">Getting Started</a></li>
+<li><a href="#reference">Reference</a></li>
+<li><a href="#glance">At a Glance</a></li>
+<li><a href="#state">Project State</a></li>
+</ul>
+</div>
+
+<div class="nav-group">
+<p class="nav-title">Project</p>
+<ul class="side-links">
+<li><a href="https://github.com/snehashish090/gradiexv2">gradiexv2 <span class="meta">(this one)</span></a></li>
+<li><a href="https://github.com/snehashish090/GradieX">GradieX v1</a></li>
+<li><a href="../../TODO.md">Performance TODO</a></li>
+<li><a href="../../README.md">README</a></li>
+</ul>
+</div>
+
+<div class="nav-group">
+<p class="nav-title">Built with</p>
+<ul class="side-links">
+<li><a href="https://pybind11.readthedocs.io/">pybind11</a></li>
+<li><a href="https://numpy.org/doc/stable/">NumPy</a></li>
+<li><a href="https://en.cppreference.com/">cppreference</a></li>
+</ul>
+</div>
+
+<div class="nav-group">
+<p class="nav-title">See also</p>
+<ul class="side-links">
+<li><a href="https://pytorch.org/docs/stable/">PyTorch</a></li>
+<li><a href="https://eigen.tuxfamily.org/">Eigen</a></li>
+<li><a href="https://www.openblas.net/">OpenBLAS</a></li>
+<li><a href="https://github.com/flame/blis">BLIS</a></li>
+<li><a href="https://developer.arm.com/architectures/instruction-sets/intrinsics/">ARM intrinsics</a></li>
+</ul>
+</div>
+
+<div class="nav-group">
+<p class="nav-title">Author</p>
+<ul class="side-links">
+<li><a href="https://github.com/snehashish090">Snehashish Laskar</a></li>
+<!-- Add further personal links here. -->
+</ul>
+</div>
+  </aside>
+
+</div>
+
+<footer class="site-footer">
+  <div class="site-footer-inner">
+    <span>GradieX <span class="pill">v0.0.1</span></span>
+    <span>MIT licensed</span>
+    <span class="credit">Developed by <a href="https://github.com/snehashish090">Snehashish Laskar</a></span>
+    <span class="spacer"><a href="../../docs/index.html">All versions</a></span>
+  </div>
+</footer>
+
+<script src="../assets/docs.js" defer></script>
+</body>
+</html>

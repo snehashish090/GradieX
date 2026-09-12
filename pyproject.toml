@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=64", "wheel", "pybind11>=2.10"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gradiex"
+version = "0.0.1"
+description = "A dependency-free feedforward neural network engine in C++, with Python bindings."
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [{name = "Snehashish Laskar"}]
+license = "MIT"
+classifiers = [
+  "Programming Language :: C++",
+  "Programming Language :: Python :: 3",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+[project.urls]
+Homepage = "https://github.com/snehashish090/GradieX"
