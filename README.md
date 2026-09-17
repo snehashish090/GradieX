@@ -15,28 +15,25 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C.svg)](https://en.cppreference.com/w/cpp/20)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-3776AB.svg)](https://www.python.org/)
-[![Version](https://img.shields.io/badge/version-0.0.2-orange.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.0.3-orange.svg)](CHANGELOG.md)
 
 </div>
 
 
-**v0.0.2 is a from-scratch rewrite of the engine.** The math is the same — forward
-pass, backpropagation, SGD — but the memory model is different. The old engine held
-one `std::vector<double>` per neuron and one `std::vector<Neuron>` per layer, which
-means one heap allocation per weight vector and pointer-chasing on every dot product.
-v0.0.2 flattens the entire network into two contiguous buffers, allocates every
-scratch buffer once at `build()`, and unrolls the inner loops. Forward, backward, and
-the weight update now perform **zero heap allocations**, and the hot loops read
-sequentially.
+**v0.0.3 is the single-precision line.** The architecture is v0.0.2's — a network of
+layers, each holding its weights in one flat contiguous buffer — but every scalar is
+`float` rather than `double`, the hot loops carry `#pragma omp simd`, and the training
+step accumulates gradients over a mini-batch instead of updating after every sample.
 
-The trade is scope. v0.0.2 currently lacks most of what v0.0.1 offered at the API
-level — no mini-batching, no L2, no dropout, no train/validation split, no model
-save/load, no fused softmax + CCE, no multi-class path. Those are returning; see the
-[roadmap](#roadmap) and [feature parity](#feature-parity-with-v001). This release
-declares the new architecture, not the full surface.
+Training lives in the engine. The Python `train()` is one call into
+`core::Network::train`: the epoch loop, the shuffle, the batching, gradient
+accumulation and the update rule are all C++, with the GIL released. A 4000-epoch XOR
+run through Python is bit-identical to the same run from `main.cpp`.
 
-Python bindings are new in v0.0.2 and ship with the same package: `core/` is
-header-only, compiled straight into a pybind11 extension.
+New in v0.0.3: per-epoch shuffling, seeded weight initialisation, a derivative lookup
+that ties each activation and loss to its own derivative, and a
+[matplotlib plotting layer](#plots) — loss curves, architecture diagrams, decision
+boundaries, weight maps and 3-D loss landscapes.
 
 ```python
 import numpy as np, gradiex
@@ -44,14 +41,15 @@ import numpy as np, gradiex
 X = np.array([[0., 0.], [0., 1.], [1., 0.], [1., 1.]])
 Y = np.array([[0.], [1.], [1.], [0.]])
 
-net = gradiex.Network(learning_rate=0.5)
+gradiex.seed(42)                       # reproducible weight initialisation
+net = gradiex.Network(learning_rate=0.5, batch_size=4)
 net.add_hidden(8, input_size=2, activation="tanh", init="xavier")
 net.add_output(1, activation="sigmoid", loss="mse")
 net.build()
 
-history = net.train(X, Y, epochs=4000, shuffle=True, seed=42)
-print(history[0], "->", history[-1])        # 0.30554 -> 0.000042
-print(net.predict([1., 0.]))                # [0.9932]
+history = net.train(X, Y, epochs=4000, shuffle=True, seed=42, plot=True)
+print(history[0], "->", history[-1])        # 0.29662 -> 0.00024
+print(net.predict([1., 0.]))                # [0.9838] (float32)
 ```
 
 *Written by Snehashish Laskar. MIT licensed.*
@@ -59,10 +57,11 @@ print(net.predict([1., 0.]))                # [0.9932]
 
 ## Contents
 
-- [What's new in v0.0.2](#whats-new-in-v002)
+- [What's new in v0.0.3](#whats-new-in-v003)
 - [Memory Architecture](#memory-architecture)
 - [Install](#install)
 - [Quick Start](#quick-start)
+- [Plots](#plots)
 - [API](#api)
 - [Names: Activations, Losses, Initializers](#names-activations-losses-initializers)
 - [What the Python Layer Guarantees](#what-the-python-layer-guarantees)
@@ -81,24 +80,30 @@ print(net.predict([1., 0.]))                # [0.9932]
 
 ---
 
-## What's new in v0.0.2
+## What's new in v0.0.3
 
-| | v0.0.1 | v0.0.2 |
+| | v0.0.2 | v0.0.3 |
 |---|---|---|
-| Standard | C++17 | **C++20** |
-| Weight storage | one `vector<double>` per neuron | **one flat buffer per network** |
-| Bias storage | one `double` per neuron, scattered | **one flat buffer** |
-| Layer connectivity | pointers between `Neuron` objects | **index arithmetic, no pointers** |
-| Heap allocations during train | O(neurons) per pass | **zero** |
-| Inner loop | `std::inner_product`-style, bounds-checked | **manually unrolled, fixed-width accumulators** |
-| Scratch buffers | allocated lazily | **allocated once in `build()`** |
-| Python bindings | none | **pybind11 extension** |
-| Cache locality | poor — weight vectors scattered | **sequential, layer-contiguous** |
+| Scalar type | `double` | **`float` throughout** |
+| Vectorisation | hand-unrolled, four accumulators | **`#pragma omp simd`**, with `reduction` on the dot product |
+| Gradients | assigned, applied per sample | **accumulated, scaled by `1/batchSize`, applied once** |
+| Training | per-sample SGD | **mini-batch SGD** — `Network(..., int batches)` |
+| Shuffling | none | **per-epoch, seeded**, inside `train()` |
+| Seeded init | none | **`initializers::setSeed`** / `gradiex.seed` |
+| Derivatives | passed in by the caller, unchecked | **looked up from the forward function** |
+| Layer constructor | 7 arguments | **5** — both derivatives are derived |
+| `computeLoss` | always squared error | **calls the configured loss** |
+| Python bindings | `double`, per-sample loop in the binding | **`float`, training delegated to the engine** |
+| Plotting | none | **seven matplotlib diagrams, light and dark** |
+| Tests | several fail by design | **91 checks, all passing** under ASan and UBSan |
 
-The measurable effect: for a `2→8→8→1` network, a training epoch is roughly **2.4×**
-faster than the equivalent v0.0.1 configuration on the same machine with `-O2`, and
-the gap widens with width because the pointer-chasing cost in v0.0.1 scaled with
-neuron count. Numbers and methodology are in [Benchmarks](#benchmarks).
+Eight of the twelve defects the v0.0.3 reference page listed are now closed, including
+one that mattered in practice: the log-based losses guarded their probabilities with
+`1e-12`, a double-precision constant that rounds away entirely in `float32`. Since
+`1.0f - 1e-12f` *is* `1.0f`, the upper clamp never bit, and a saturated sigmoid gave
+`log(0)` and a division by zero — `inf * 0` is `NaN`, which reaches every weight on
+the next update and never washes out. A two-moons run diverged at epoch 243 with the
+loss already down at 0.003. The guard is `1e-7f` now, and five regression tests pin it.
 
 ## Memory Architecture
 
@@ -146,123 +151,203 @@ reallocated. The buffers are:
 asserts zero `operator new` calls between `build()` and destruction; the test suite
 checks it.
 
-### 3. Loop unrolling
+### 3. SIMD pragmas
 
-The inner dot product is written with four independent accumulators so the compiler
-can issue independent FMA chains without a serial dependency on a single sum:
+v0.0.2 unrolled the inner dot product by hand into four accumulators. v0.0.3 asks the
+compiler instead:
 
 ```cpp
-double s0 = 0, s1 = 0, s2 = 0, s3 = 0;
-size_t j = 0;
-for (; j + 4 <= fan_in; j += 4) {
-    s0 += w[j+0] * x[j+0];
-    s1 += w[j+1] * x[j+1];
-    s2 += w[j+2] * x[j+2];
-    s3 += w[j+3] * x[j+3];
+for (int neuron = 0; neuron < width; ++neuron)
+{
+    const float* __restrict__ w = neuronWeights + neuron * inputSize;
+    float sum = 0.0f;
+    #pragma omp simd reduction(+:sum)
+    for (int inputIdx = 0; inputIdx < inputSize; ++inputIdx)
+        sum += w[inputIdx] * layerInputs[inputIdx];
+    neuronOutputsUnactivated[neuron] = sum + neuronBiases[neuron];
 }
-for (; j < fan_in; ++j) s0 += w[j] * x[j];
-z = (s0 + s1) + (s2 + s3) + bias;
 ```
 
-The `+ 4` loop is unrolled by hand rather than left to the compiler because the
-number of accumulators is a correctness-adjacent choice: reassociating a
-floating-point sum changes its result, so the tree shape is pinned here and not
-left to `-ffast-math`. This is also why the gradient check still passes to
-$10^{-11}$ — the arithmetic is reordered but deterministic and matched in the
-numerical reference.
+The same directive covers zeroing, scaling and applying gradients. `__restrict__`
+pointers are established before each loop so the compiler knows the buffers do not
+alias.
 
-> **Note on SIMD.** Auto-vectorization of this loop is left enabled (`-O2` /
-> `-O3`), but no intrinsics are used and no `-march=native` is assumed. The
-> accumulators are plain `double`. A hand-written SIMD path is on the roadmap and
-> is expected to help most on the wide layers.
+> **This only does something if OpenMP is enabled.** Built without `-fopenmp`,
+> `#pragma omp simd` is accepted and discarded in silence — no error, no warning, not
+> even under `-Wall -Wextra`. Apple clang, the default `c++` on macOS, rejects
+> `-fopenmp` outright, so the stock macOS build gets whatever the optimiser would
+> have done anyway. Use `g++-14` or LLVM clang with libomp to act on them.
 
 ## Install
 
-Requires a C++20 compiler and Python 3.9+.
+Requires a C++20 compiler and Python 3.9+. `numpy` and `matplotlib` come with it.
 
 ```bash
+cd 0.0.3
 pip install .            # or: pip install -e .   for development
 ```
 
-The build needs no headers beyond the standard library and pybind11; `core/` is
-header-only and compiled directly into the extension module.
+`core/` is header-only and compiled directly into the extension module. To build in
+place, which is what the tests and examples expect:
+
+```bash
+python3 setup.py build_ext --inplace
+```
 
 For the C++ engine alone, nothing is needed but a compiler:
 
 ```bash
-clang++ -std=c++20 -O2 main.cpp -o main
+clang++ -std=c++20 -O2 -fopenmp-simd main.cpp -o main
 ./main
 ```
+
+`-fopenmp-simd` is what makes the `#pragma omp simd` directives in `core/` apply. It
+is worth up to **2.4×** on wide layers — see [Benchmarks](#benchmarks). Apple clang
+rejects `-fopenmp` but accepts this, and `core/` needs nothing more: it uses SIMD
+directives only, no parallel regions, so no runtime library is involved. Without the
+flag the pragmas are accepted and discarded in silence.
+
+> `setup.py` lists `core/*.h` in `depends`. Without it, setuptools time-stamps only
+> the `.cpp`, so editing a header leaves a stale `.so` in place and the next run
+> silently tests the previous engine.
 
 ## Quick Start
 
 ```python
 import numpy as np, gradiex
 
-# XOR, per-sample SGD
 X = np.array([[0., 0.], [0., 1.], [1., 0.], [1., 1.]])
 Y = np.array([[0.], [1.], [1.], [0.]])
 
-net = gradiex.Network(learning_rate=0.5)
+gradiex.seed(42)
+net = gradiex.Network(learning_rate=0.5, batch_size=4)   # 0 = one batch per epoch
 net.add_hidden(8, input_size=2, activation="tanh", init="xavier")
 net.add_output(1, activation="sigmoid", loss="mse")
 net.build()
 
 history = net.train(X, Y, epochs=4000, shuffle=True, seed=42)
-print(history[0], "->", history[-1])        # 0.30554 -> 0.000042
-print(net.predict([1., 0.]))                # [0.9932]
+print(net.predict([1., 0.]))                # [0.9838]
 ```
 
 ```cpp
 #include "core/network.h"
+namespace act = core::functions::activations;
+namespace ini = core::functions::initializers;
+namespace los = core::functions::loss;
 
-core::Network net(1, 1, 0.05);
-net.addHiddenLayer(0, 8, 2,
-    core::functions::activations::tanh,
-    core::functions::activations::tanhDerivative,
-    core::functions::initializers::xavier,
-    core::functions::loss::mse,
-    core::functions::loss::mseDerivative);
-net.addOutputLayer(0, 1, 8, /* ... */);
+ini::setSeed(42);
+core::Network net(1, 1, 0.5f, 4);           // 1 hidden, 1 output, lr, batch size
+net.addHiddenLayer(0, 8, 2, act::tanh,    ini::xavier, los::mse);
+net.addOutputLayer(0, 1, 8, act::sigmoid, ini::xavier, los::mse);
 net.initializeAllWeightsAndBiases();
+
+std::vector<float> history(4000);
+net.train(X, Y, 4000, history.data(), (int)history.size(),
+          /*verbose=*/false, /*shuffle=*/true, /*seed=*/42u);
 ```
+
+Both reach `0.296616971 -> 0.000236376116`. The derivatives are not passed in: the
+layer resolves each from its forward function, so a mismatched pair is unreachable.
+
+## Plots
+
+`0.0.3/examples/two_moons.py` trains a `2 → 16 → 16 → 1` network on two interleaving
+moons — a curved boundary, so the hidden layers have to do real work — and writes
+every diagram below. It reaches 100 % train and test accuracy.
+
+```bash
+python3 examples/two_moons.py
+```
+
+`train(..., plot=True)` draws the loss curve when training finishes and leaves the
+figure on `net.last_figure`. Every plot takes an optional `ax=` and returns its
+figure, so they compose; nothing calls `show()` unless you pass `show=True`. Each
+accepts `theme="light"` or `theme="dark"`.
+
+| | |
+|---|---|
+| ![Training loss](examples/plots/01_loss.png) | ![Architecture](examples/plots/04_architecture.png) |
+| **`plot_loss(smooth=25)`** — the raw trace recedes and the moving average carries the line. The final value is labelled directly. | **`plot_architecture()`** — layers wider than `max_nodes` are drawn truncated, but the label always states the true width. |
+| ![Decision boundary](examples/plots/07_decision_boundary.png) | ![Loss landscape](examples/plots/10_loss_landscape_log.png) |
+| **`plot_decision_boundary(X, Y)`** — sample markers sit in ink rather than the series hues, since over a diverging field a blue marker would land on its own colour and vanish. | **`plot_loss_landscape(X, Y, log=True)`** — the basin the optimiser settled in, on two filter-normalised random directions. |
+| ![Weight distribution](examples/plots/05_weight_distribution.png) | ![Weight heatmap](examples/plots/06_weights_hidden0.png) |
+| **`plot_weight_distribution()`** — one histogram per layer. A layer collapsed at zero is dead; one spread far wider than its neighbours is about to diverge. | **`plot_weight_heatmap(0)`** — weights are signed, so the ramp is diverging and symmetric about zero. A sequential ramp would hide the sign. |
+
+![Summary dashboard](examples/plots/11_summary.png)
+
+**`plot_summary(X, Y)`** — architecture, loss, weights and the data fit in one figure.
+Panels with nothing to draw are left out rather than shown empty.
+
+### On the loss landscape
+
+Two random directions are drawn through the trained weights and **filter-normalised**:
+each direction row is scaled to the norm of the weight row it perturbs. That is what
+makes the picture mean anything — the loss is invariant to rescaling a neuron's
+weights, so an unnormalised step moves small-weight neurons a long way in function
+space and large-weight ones barely at all, and the result describes the weight scales
+rather than the loss. The method is from Li et al., *Visualizing the Loss Landscape of
+Neural Nets* (2018).
+
+It is a random 2-D slice of a 337-dimensional surface. Read it as a texture: it shows
+whether the basin is broad and smooth or narrow and ragged, **not** the path the
+optimiser took or where other minima are. A different `seed=` gives a different slice.
+The sweep restores the trained weights exactly when it finishes.
 
 ## API
 
-### `gradiex.Network(learning_rate=0.01)`
+### `gradiex.Network(learning_rate=0.01, batch_size=1)`
 
 Layers are declared, then the engine is constructed by `build()`. Nothing can be run
-until then, and no layers can be added after.
+until then, and no layers can be added after. `batch_size` is how many samples are
+accumulated before one update: `1` is per-sample SGD, `0` means one batch per epoch.
 
 | method | description |
 |---|---|
 | `add_hidden(width, input_size=None, activation="relu", init="he")` | Append a hidden layer. `input_size` defaults to the previous layer's width, and is required only on the first layer. |
 | `add_output(width, input_size=None, activation="sigmoid", loss="mse", init="he")` | Add the output layer. Call once, after all hidden layers. |
 | `build()` | Construct the engine, size every buffer, and initialize weights. Alias: `initialize()`. |
-| `forward(x)` | One forward pass; returns the output activations as a NumPy array. Alias: `predict(x)`. |
-| `backward(y)` | Backpropagate one target and apply an SGD update. Call `forward()` first. |
+| `train(X, Y, epochs=100, shuffle=False, seed=None, verbose=False, log_every=0, plot=False)` | Runs in the engine. Returns mean loss per epoch, and stores it on `.history`. |
+| `train_batch(X, Y)` | One engine batch step over these samples. Returns the mean batch loss. |
+| `evaluate(X, Y)` | Mean loss over a dataset, engine-side, with no update applied. |
+| `forward(x)` / `predict(x)` | One forward pass; returns the output activations. |
 | `loss(x, y)` | Forward `x`, then return the configured loss against `y`. |
-| `train(X, Y, epochs=100, shuffle=False, seed=None, verbose=False, log_every=0)` | Per-sample SGD over `(n_samples, n_features)` arrays. Returns mean loss per epoch. |
-| `weights(layer)` | Layer weights as a `(width, input_size)` array. Negative indices allowed, so `-1` is the output layer. |
-| `biases(layer)` | Layer biases. |
+| `weights(layer)` / `biases(layer)` | `float32` arrays; weights shaped `(width, input_size)`. Negative indices allowed. |
+| `set_weights(layer, values)` / `set_biases(layer, values)` | Overwrite a layer's parameters. Weights accept `(width, input_size)` or flat. |
 
-Properties: `learning_rate` (writable), `num_hidden`, `input_size`, `output_size`,
-`built`.
+Gradient primitives, one per engine call, for a hand-rolled loop: `zero_gradients()`,
+`accumulate(y)`, `scale_gradients(factor)`, `apply_gradients()`. `backward(y)` is the
+convenience form — zero, accumulate, apply — for the sample just forwarded.
 
-Inputs accept anything NumPy can cast to `float64` — lists, tuples, integer arrays.
+Plotting, each also available as a module function taking the network:
+`plot_loss`, `plot_architecture`, `plot_weight_distribution`, `plot_weight_heatmap`,
+`plot_decision_boundary`, `plot_predictions`, `plot_loss_landscape`, `plot_summary`.
+
+Properties: `learning_rate` and `batch_size` (writable), `layers`, `num_hidden`,
+`input_size`, `output_size`, `built`, `history`, `last_figure`.
+
+Module level: `gradiex.seed(n)` seeds weight initialisation, `gradiex.THEMES` holds
+the two palettes.
+
+Inputs accept anything NumPy can cast to `float32`. The engine is single-precision, so
+`net.learning_rate` reads back rounded — setting `0.05` returns `0.05000000074505806`.
 
 ### Names
 
 ```python
-gradiex.activations()   # gelu, leaky_relu, relu, sigmoid, softmax, swish, tanh
-gradiex.losses()        # mse, mae, huber, binary_cross_entropy (bce), cross_entropy (cce)
+gradiex.activations()   # gelu, identity, leaky_relu, linear, relu, sigmoid, softmax, swish, tanh
+gradiex.losses()        # mse, mae, huber, bce, binary_cross_entropy, cce, cross_entropy, softmax_cross_entropy
 gradiex.initializers()  # zeros, xavier, he
 ```
 
-Activations and losses are selected by name, which is deliberate: the C++ API takes
-the activation and its derivative as two independent function pointers, so a
-mismatched pair compiles and trains silently wrong. The binding looks up matched
-pairs.
+Activations and losses are selected by name. The engine resolves each derivative from
+the forward function itself, and the binding checks that lookup at `add_*` time — so
+an activation the engine cannot differentiate is refused rather than stored as a null
+pointer and called on the first backward pass.
+
+`activation="softmax"` is one such case: its derivative is a Jacobian and only the
+fused form is implemented. Use `activation="identity"` with
+`loss="softmax_cross_entropy"`, which computes `dL/dz = softmax(z) - y` directly.
+`predict()` then returns logits rather than probabilities.
 
 ## What the Python Layer Guarantees
 
@@ -344,10 +429,14 @@ reason. Both are stable out to $\pm 10^{5}$.
 
 **On the softmax derivative:** every other derivative above is elementwise, so it is
 a scalar-in / scalar-out function. The softmax Jacobian is a dense $n \times n$
-matrix, which that signature cannot express, and v0.0.2 does not yet implement the
-fused softmax + CCE path that v0.0.1 had. Softmax is therefore **unavailable as an
-output activation in this release** and rejected by the binding. It will return with
-the fused path — see the [roadmap](#roadmap).
+matrix, which that signature cannot express. `fetchAssociatedDerivative` therefore
+returns `nullptr` for `softmax` on purpose, and the binding refuses it.
+
+The fused path **is** reachable in v0.0.3, though not through that activation. Pair
+`identity` with `softmax_cross_entropy`: the loss derivative consumes the logits and
+returns $\mathrm{softmax}(z) - y$ directly, and $\mathrm{identity}'(z) = 1$ leaves it
+untouched, so the delta is exactly the fused form. `predict()` then returns logits
+rather than probabilities. A regression test pins this.
 
 ### Loss functions
 
@@ -509,46 +598,55 @@ explaining the fix.
 ## Tests
 
 ```bash
-python python/test_bindings.py     # run from the repo root
-```
-
-Covers XOR training, seeded reproducibility, the manual forward/backward loop, NumPy
-interop, and every guard listed above.
-
-```bash
-./tests/run_tests.sh               # C++ suite, from the repo root
+./tests/run_tests.sh               # C++ suite — 91 checks
 ./tests/run_tests.sh --asan        # with AddressSanitizer + UBSan
+./tests/run_tests.sh --simd        # with -fopenmp-simd, so the pragmas apply
+./tests/run_tests.sh Gradients     # only tests whose name contains "Gradients"
+
+python3 python/test_bindings.py    # bindings, guards, C++/Python parity
+python3 python/test_plotting.py    # every diagram, headless (Agg)
 ```
 
-The C++ suite includes a **zero-allocation assertion**: it installs a global
-`operator new` counter and fails if any allocation occurs between `build()` and the
-end of a training run. That check is the reason the flat buffers exist, and it runs
-on every commit.
+All 91 C++ checks pass in every mode: plain, `--asan`, `--simd`, and both together.
+
+**Run it with `--simd` at least once before shipping.** The pragmas are discarded in
+silence without the flag, so a malformed one is invisible until something enables
+them. That is not hypothetical: `softmaxCrossEntropyDerivative` carried an
+array-section `reduction` clause on a loop that overwrites rather than accumulates,
+the suite passed without the flag, and adding it failed the fused-softmax test
+immediately. Each runs in a forked
+child, so a crash is reported against one row of the table rather than ending the run.
+Reference values are computed in the test from the definitions, never captured from
+the implementation, so a failure means the code disagrees with the maths.
+
+Because the engine is `float32`, comparisons use a `1e-6` tolerance for hand-computed
+references and snapshot the buffer for "this did not change" — `0.7f != 0.7`, so a
+decimal literal would fail for the wrong reason.
+
+The v0.0.2 zero-allocation assertion was not ported; the flat layout it guarded is
+unchanged, but nothing currently asserts it.
 
 ## Feature Parity with v0.0.1
 
-Everything below was in v0.0.1 and is **not yet** in v0.0.2. It is listed here so the
-gap is explicit rather than discovered.
+Listed so the gap is explicit rather than discovered.
 
-| Feature | Status in v0.0.2 |
+| Feature | Status in v0.0.3 |
 |---|---|
-| Mini-batch training | not yet — per-sample only |
-| Per-epoch shuffling | yes |
+| Mini-batch training | **yes** — `Network(..., batch_size)` |
+| Per-epoch shuffling | **yes** — seeded, inside `train()` |
+| Seeded weight initialisation | **yes** — `gradiex.seed` / `initializers::setSeed` |
+| Fused softmax + categorical cross-entropy | **yes** — via `identity` + `softmax_cross_entropy` |
+| Multi-class output | **yes** — same pairing |
 | L2 weight decay | not yet |
 | Inverted dropout | not yet |
-| Train/validation split | not yet |
+| Train/validation split | not yet — but `train(epochs=1)` in a loop plus `evaluate()` gets you the curve |
 | Early stopping | not yet |
-| Fused softmax + categorical cross-entropy | not yet — softmax unavailable |
-| Multi-class output | not yet |
-| Model save / load | not yet — flat buffers make it a `memcpy`, planned |
-| Enum-dispatched activations | yes — this is the only path in `core/` |
-| Numerical gradient check | yes |
-| Central-difference reference | yes |
+| Model save / load | not yet — `set_weights` / `set_biases` make it a loop, and the pieces are there |
+| Numerical gradient check | not ported — gradients are pinned against hand-derived values instead |
 
 The architecture was rewritten first on purpose: re-adding a feature to a flat layout
 is a localized change, whereas re-flattening a layout after the features are back is
-a rewrite of every feature at once. v0.0.1 remains available for anyone who needs the
-full feature set today.
+a rewrite of every feature at once.
 
 ## Invariants
 
@@ -582,35 +680,101 @@ Changing these silently breaks correctness.
 
 ## Not Supported
 
-Optimizers other than plain SGD (no momentum, Adam, or LR schedule), mini-batching,
-L2 or dropout, train/validation split, early stopping, model save/load, a trainable
-softmax output, convolution, recurrence, GPU, or threading. Inner loops are scalar
-`double` with no intrinsics.
+Optimizers other than plain SGD (no momentum, Adam, or LR schedule), L2 or dropout,
+train/validation split, early stopping, model save/load, a trainable softmax output,
+convolution, recurrence, GPU, or threading.
+
+Mini-batching, per-epoch shuffling and seeded initialisation **are** supported in
+v0.0.3. Vectorisation is requested through `#pragma omp simd` rather than written with
+intrinsics, so it is present only when the build enables OpenMP.
+
+Three defects remain open: `std::expf` is not a standard name; only
+`outputLayers[0]` back-propagates, so extra output heads train silently wrong (the
+Python layer refuses to build them); and `Network` has a destructor but no copy
+constructor, so a copy double-frees.
 
 ## Benchmarks
 
-### Throughput
+Measured, not inherited. `bench/bench.cpp` drives both engines through one shared
+harness — same timing loop, same data, same architectures — so the comparison is
+identical by construction rather than by inspection.
 
-Single-threaded, scalar doubles, `-O2`. The v0.0.1 column is the same architecture
-built with the old per-neuron storage, for reference.
+```bash
+./bench/run_bench.sh            # full matrix, CSV on stdout
+```
 
-| Architecture | Params | v0.0.2 µs/update | v0.0.1 µs/update | Speedup |
+Raw output is in [`bench/results.csv`](bench/results.csv).
+
+**Machine:** Apple M5, 10 cores, macOS; Apple clang 21.0.0, single-threaded.
+**Metric:** microseconds per sample — forward pass, backward pass and the weight
+update — taking the **minimum of nine trials**, since interference only ever adds
+time. Median and max are in the CSV; the two agree to within 0.06× everywhere, so
+the choice does not move any conclusion.
+
+### v0.0.3 vs v0.0.2
+
+At batch size 1 both engines do the same thing per sample. v0.0.3 additionally zeroes
+its gradient buffers each update — a real cost of the batching architecture, counted
+here rather than excused.
+
+`-O2`, no OpenMP:
+
+| Architecture | Params | v0.0.2 | v0.0.3 | Speedup |
 |---|---|---|---|---|
-| `2→8×2→1` | 105 | 1.2 | 2.9 | 2.4× |
-| `20→32×2→3` | 1,827 | 5.6 | 13.6 | 2.4× |
-| `64→128×3→10` | 42,634 | 31 | 82 | 2.6× |
-| `784→128×2→10` | 118,282 | 108 | 303 | 2.8× |
+| `2→8×2→1` | 105 | 0.131 | 0.111 | **1.19×** |
+| `20→32×2→3` | 1,827 | 1.040 | 0.648 | **1.61×** |
+| `64→128×3→10` | 42,634 | 37.573 | 17.559 | **2.14×** |
+| `784→128×2→10` | 118,282 | 85.469 | 64.229 | **1.33×** |
 
-The speedup grows with width, as expected: the wider the layer, the more the old
-engine paid for scattered weight vectors.
+`-O2 -fopenmp-simd`, which is what makes the `#pragma omp simd` directives real:
 
-### What's not measured yet
+| Architecture | Params | v0.0.2 | v0.0.3 | Speedup | v0.0.3 @ batch 32 | Speedup |
+|---|---|---|---|---|---|---|
+| `2→8×2→1` | 105 | 0.139 | 0.112 | **1.24×** | 0.081 | **1.71×** |
+| `20→32×2→3` | 1,827 | 1.083 | 0.564 | **1.92×** | 0.407 | **2.66×** |
+| `64→128×3→10` | 42,634 | 37.810 | 12.293 | **3.08×** | 7.644 | **4.95×** |
+| `784→128×2→10` | 118,282 | 85.855 | 26.794 | **3.20×** | 15.631 | **5.49×** |
 
-The v0.0.1 handwriting benchmark (UCI Optical Recognition, 96–97% test accuracy) is
-not reproduced here because the multi-class path and fused softmax + CCE are not in
-this release. It will return with them. v0.0.2's accuracy on regression and binary
-tasks matches v0.0.1 bit-for-bit on identical seeds and orderings — a test asserts
-this against a stored v0.0.1 run.
+So: **1.2–2.1× from single precision and the structural changes alone, and 1.2–3.2×
+once the SIMD directives are enabled.** With mini-batching at 32, where the
+gradient-zeroing pass amortises, **1.7–5.5×**.
+
+### The OpenMP flag is the whole story on wide layers
+
+Without it the pragmas are accepted and discarded in silence. What that costs, for
+v0.0.3 at `-O2`:
+
+| Architecture | no flag | `-fopenmp-simd` | Gain |
+|---|---|---|---|
+| `2→8×2→1` | 0.111 | 0.112 | — |
+| `20→32×2→3` | 0.648 | 0.564 | 1.15× |
+| `64→128×3→10` | 17.559 | 12.293 | 1.43× |
+| `784→128×2→10` | 64.229 | 26.794 | **2.40×** |
+
+The gain tracks layer width, which is what you would expect: the wider the dot
+product, the more there is to vectorise. On the narrowest network it is nothing at
+all. Note that v0.0.2 is unaffected by the flag — it has no pragmas — so on the widest
+architecture the flag alone accounts for most of v0.0.3's margin.
+
+> **Apple clang rejects `-fopenmp`**, which is the flag the docs usually name. It does
+> accept **`-fopenmp-simd`**, which enables exactly the SIMD directives and needs no
+> runtime library — and `core/` uses nothing else, no parallel regions. That is the
+> flag to reach for on macOS.
+
+`-O3` made no difference at any size: every figure landed within noise of `-O2`. It is
+in the matrix and the CSV, but there is nothing to report from it.
+
+### What is not measured
+
+- **v0.0.1.** The old table in this README compared v0.0.2 against v0.0.1 and claimed
+  ~2.4×. That column is gone rather than carried forward: v0.0.1 is a single
+  translation unit with a different API, and re-deriving a fair harness for it was not
+  part of this work. The numbers above are v0.0.3 against v0.0.2 only.
+- **Accuracy per unit time.** These are throughput figures. Single precision changes
+  the arithmetic, so a faster update is not automatically a faster path to a given
+  loss — nothing here measures that.
+- **Multi-threading.** Everything is single-threaded. `#pragma omp simd` is
+  instruction-level parallelism, not thread-level; no `parallel for` exists in `core/`.
 
 ## Roadmap
 

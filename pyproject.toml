@@ -4,10 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gradiex"
-version = "0.0.1"
+version = "0.0.3"
 description = "A dependency-free feedforward neural network engine in C++, with Python bindings."
 readme = "README.md"
 requires-python = ">=3.9"
+dependencies = [
+  "numpy>=1.20",
+  "matplotlib>=3.5",
+]
 authors = [{name = "Snehashish Laskar"}]
 license = "MIT"
 classifiers = [

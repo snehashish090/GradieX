@@ -11,7 +11,7 @@ int main()
     // Binary classification dataset: XOR or simple geometric check (e.g. x + y > 0.5)
     // Input size: 2 features, Output size: 1 (binary classification)
     
-    std::vector<std::vector<double>> trainInputs = {
+    std::vector<std::vector<float>> trainInputs = {
         {0.1, 0.2},
         {0.8, 0.9},
         {0.2, 0.1},
@@ -20,7 +20,7 @@ int main()
         {0.6, 0.4}
     };
     
-    std::vector<std::vector<double>> trainTargets = {
+    std::vector<std::vector<float>> trainTargets = {
         {0.0},
         {1.0},
         {0.0},
@@ -37,10 +37,8 @@ int main()
         2,  // width
         2,  // input size
         core::functions::activations::sigmoid,
-        core::functions::activations::sigmoidDerivative,
         core::functions::initializers::xavier,
-        core::functions::loss::mse,
-        core::functions::loss::mseDerivative
+        core::functions::loss::mse
     );
 
     network.addOutputLayer(
@@ -48,16 +46,13 @@ int main()
         1,  // width
         2,  // input size
         core::functions::activations::sigmoid,
-        core::functions::activations::sigmoidDerivative,
         core::functions::initializers::xavier,
-        core::functions::loss::mse,
-        core::functions::loss::mseDerivative
+        core::functions::loss::mse
     );
 
     network.initializeAllWeightsAndBiases();
-    network.printAllLayers();
     
-    std::vector<double> lossBuffer;
+    std::vector<float> lossBuffer;
     lossBuffer.resize(10000);
 
     network.train(trainInputs, trainTargets, 10000, lossBuffer.data(), static_cast<int>(lossBuffer.size()));

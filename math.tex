@@ -1,0 +1,183 @@
+\documentclass[11pt,a4paper]{article}
+
+% --- Packages ---
+\usepackage[utf8]{inputenc}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath, amsfonts, amssymb}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{mdframed}
+\usepackage{hyperref}
+
+% --- Visual & Typography Setup ---
+\definecolor{primary}{RGB}{37, 99, 235}    % Royal Blue
+\definecolor{darkgray}{RGB}{51, 65, 85}    % Slate Dark Text
+\definecolor{boxbg}{RGB}{248, 250, 252}    % Soft Light Background
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=primary,
+    urlcolor=primary
+}
+
+% Optional: Frame setup for major result equations
+\mdfdefinestyle{eqbox}{
+    backgroundcolor=boxbg,
+    linecolor=primary,
+    linewidth=1.5pt,
+    topline=false,
+    bottomline=false,
+    rightline=false,
+    innerleftmargin=12pt,
+    innerrightmargin=12pt,
+    innertopmargin=8pt,
+    innerbottommargin=8pt
+}
+
+\setlength{\parskip}{0.6em}
+\setlength{\parindent}{0pt}
+
+% --- Document ---
+\begin{document}
+
+\title{\textbf{\Large \color{primary} The Math Behind This Library}}
+\author{}
+\date{}
+\maketitle
+
+\vspace{-2em}
+
+The neural network is composed of many layers. There are $n$ hidden layers denoted by $[l]$ and for simplicity at this stage we assume there is one output layer $[L]$. Starting from a perceptron, the $i^{th}$ perceptron accepts a vector $a^{[l-1]}$ of size $k$ which represents the output of the \textbf{entire} previous layer. The perceptron/neuron then holds one weight per value of $a^{[l-1]}$ and thus each perceptron holds a vector of weights $W_i^{[l]}$. Each perceptron also holds a bias that we introduce in training the perceptron which is a scalar value of $b_i$. The output $z_i$ for the $i^{th}$ perceptron is the following:
+
+\begin{equation}
+z_i^{[l]} = b_i + \sum_{j=1}^{k}{W_{ij}^{[l]} \cdot a_{j}^{[l-1]}}
+\end{equation}
+
+To account for non-linear patterns, we pass the $z_i$ value through an activation function $f(z_i)$ defined as:
+
+\begin{equation}
+a_i^{[l]} = f(z_i^{[l]})
+\end{equation}
+
+To calculate how much our output deviates we defined a loss function $L(a^{[l]})$. Now $a^{[l]}$ is a function of $z^{[l]}$ which is a function of the weights of that layer $W^{[l]}$. Thus Loss can be defined as follows:
+
+\begin{equation}
+L(a^{[l]}(z^{[l]}(W^{[l]})))
+\end{equation}
+
+To calculate how each layer's output $z^{[l]}$ contributes to the final loss, we need to calculate the error signal for that layer defined as $\delta^{[l]}$:
+
+\begin{equation}
+\delta^{[l]} = \frac{\partial{L^{[l]}}}{\partial{z^{[l]}}} = \left(\frac{\partial{L^{[l]}}}{\partial{a^{[l]}}}\right) \left(\frac{\partial{a^{[l]}}}{\partial{z^{[l]}}}\right)
+\end{equation}
+
+Given the following equation:
+
+\begin{equation}
+a^{[l]} = f(z^{[l]})
+\end{equation}
+
+We can calculate $\frac{\partial{a^{[l]}}}{\partial{z^{[l]}}}$ to be:
+
+\begin{equation}
+\frac{\partial{a^{[l]}}}{\partial{z^{[l]}}} = {f'(z^{[l]})}
+\end{equation}
+
+Substituting that back:
+
+\begin{equation}
+\delta^{[l]} = \frac{\partial{L^{[l]}}}{\partial{a^{[l]}}} \odot {f'(z^{[l]})}
+\end{equation}
+
+Now how do we calculate $\frac{\partial{L^{[l]}}}{\partial{a^{[l]}}}$? We go back to original perceptron equation where we can see that $z^{[l+1]}$ is a function of $a^{[l]}$:
+
+\begin{equation}
+z^{[l+1]} = W^{[l+1]}a^{[l]} + b^{[l+1]}
+\end{equation}
+
+\begin{equation}
+\frac{\partial{z^{[l+1]}}}{\partial{a^{[l]}}} = W^{[l+1]}
+\end{equation}
+
+Now re-defining Loss function to be a function of the next layer $z^{[l+1]}$ which is a function of the present layer's activated output $a^{[l]}$:
+
+\begin{equation}
+L(z^{[l+1]}(a^{[l]}))
+\end{equation}
+
+\begin{equation}
+\frac{\partial{L}}{\partial{a^{[l]}}} = \frac{\partial{L}}{\partial{z^{[l+1]}}} \frac{\partial{z^{[l+1]}}}{\partial{a^{[l]}}}
+\end{equation}
+
+\begin{equation}
+\implies \frac{\partial{L}}{\partial{a^{[l]}}} = (W^{[l+1]})^T \delta^{[l+1]}
+\end{equation}
+
+Therefore, we come with a final expression for the error signal of a layer to be:
+
+\begin{mdframed}[style=eqbox]
+\begin{equation}
+\delta^{[l]} = \frac{\partial{L}}{\partial{z^{[l]}}} = (W^{[l+1]})^T \delta^{[l+1]} \odot {f'(z^{[l]})}
+\end{equation}
+\end{mdframed}
+
+Moving back to the loss function, to calculate the weight gradient, we use the following chain:
+
+\begin{equation}
+\frac{\partial{L}}{\partial{W^{[l]}}} = \left(\frac{\partial{L^{[l]}}}{\partial{a^{[l]}}}\right) \left(\frac{\partial{a^{[l]}}}{\partial{z^{[l]}}}\right) \left(\frac{\partial{z^{[l]}}}{\partial{W^{[l]}}}\right)
+\end{equation}
+
+Substituting $\delta^{[l]}$ into this, we get:
+
+\begin{equation}
+\frac{\partial{L}}{\partial{W^{[l]}}} = \delta^{[l]} \left(\frac{\partial{z^{[l]}}}{\partial{W^{[l]}}}\right)
+\end{equation}
+
+Given the following:
+
+\begin{equation}
+z^{[l]} = W^{[l]} \cdot a^{[l-1]} + b^{[l]}
+\end{equation}
+
+\begin{equation}
+\frac{\partial{z^{[l]}}}{\partial{W^{[l]}}} = a^{[l-1]}
+\end{equation}
+
+Substituting that into our gradient loss equation, we get:
+
+\begin{mdframed}[style=eqbox]
+\begin{equation}
+\frac{\partial{L}}{\partial{W^{[l]}}} = \delta^{[l]} (a^{[l-1]})^T
+\end{equation}
+\end{mdframed}
+
+Do not forget the bias!!! We can write the Loss Function as:
+
+\begin{equation}
+L(z^{[l]}(b^{[l]}))
+\end{equation}
+
+To calculate the bias gradient, calculate the following:
+
+\begin{equation}
+\frac{\partial L}{\partial b^{[l]}} = \left(\frac{\partial L}{\partial z^{[l]}}\right) \left(\frac{\partial z^{[l]}}{\partial b^{[l]}}\right)
+\end{equation}
+
+\begin{equation}
+\frac{\partial L}{\partial b^{[l]}} = \delta^{[l]} \left(\frac{\partial z^{[l]}}{\partial b^{[l]}}\right)
+\end{equation}
+
+\begin{equation}
+z^{[l]} = W^{[l]} \cdot a^{[l-1]} + b^{[l]}, \quad \frac{\partial z^{[l]}}{\partial b^{[l]}} = 1
+\end{equation}
+
+Therefore,
+
+\begin{mdframed}[style=eqbox]
+\begin{equation}
+\frac{\partial L}{\partial b^{[l]}} = \delta^{[l]}
+\end{equation}
+\end{mdframed}
+
+\end{document}

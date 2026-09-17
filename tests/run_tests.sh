@@ -5,7 +5,15 @@
 #   ./tests/run_tests.sh              # plain build
 #   ./tests/run_tests.sh --asan       # + AddressSanitizer (catches out-of-bounds
 #                                     #   reads/writes that the plain build survives)
+#   ./tests/run_tests.sh --simd       # + -fopenmp-simd, which makes the `#pragma omp
+#                                     #   simd` directives in core/ actually apply
 #   ./tests/run_tests.sh --asan Grad  # only tests whose name contains "Grad"
+#
+# Run it with --simd at least once before shipping. The pragmas are discarded in
+# silence without the flag, so a malformed one is invisible until something turns
+# them on -- which is exactly how the bogus array-section `reduction` clause in
+# softmaxCrossEntropyDerivative survived: the suite passed without the flag and
+# failed with it.
 #
 set -uo pipefail
 
@@ -21,7 +29,13 @@ for arg in "$@"; do
   case "$arg" in
     --asan)
       FLAGS+=(-fsanitize=address,undefined -fno-omit-frame-pointer)
-      SUFFIX="_asan"
+      SUFFIX="${SUFFIX}_asan"
+      ;;
+    --simd)
+      # Apple clang rejects -fopenmp but accepts -fopenmp-simd, which is all core/
+      # needs: it uses `#pragma omp simd` and no parallel regions.
+      FLAGS+=(-fopenmp-simd)
+      SUFFIX="${SUFFIX}_simd"
       ;;
     -*)
       echo "unknown option: $arg" >&2; exit 2 ;;
