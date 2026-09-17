@@ -8,6 +8,11 @@
 // The layers are exercised here only as far as the Network drives them;
 // per-function layer behaviour lives in test_layer.cpp.
 //
+// 0.0.3 replaced the per-sample backwardPass() with accumulate-then-apply:
+// zeroAllGradients() / accumulateGradients(target) / scaleAllGradients(1/n) /
+// applyGradients(). One SGD step on a single sample is that sequence with n=1,
+// which is what sgdStep() below does.
+//
 
 #include "test_framework.h"
 #include "../core/network.h"
@@ -22,34 +27,45 @@ namespace loss = core::functions::loss;
 // helpers
 // ---------------------------------------------------------------------------
 
-static constexpr double kTol = 1e-9;
+// float32 engine: reference values are computed in double, so allow the ~1e-7
+// resolution of a float32 result near 1.0.
+static constexpr double kTol = 1e-6;
+static constexpr double kExact = 0.0;
 
 // Reference sigmoid / derivative, straight from the definition.
 static double sig(double z) { return 1.0 / (1.0 + std::exp(-z)); }
 static double sigPrime(double z) { double s = sig(z); return s * (1.0 - s); }
 
-// train() and the layer print helpers write to stdout; tests that call them
-// only care about the numbers.
+// train(verbose=true) writes to stdout; tests that ask for it only care about
+// the numbers.
 static void silenceStdout() { std::freopen("/dev/null", "w", stdout); }
 
 static void addSigmoidHidden(core::Network& net, int index, int width, int inputSize)
 {
-    net.addHiddenLayer(index, width, inputSize,
-                       act::sigmoid, act::sigmoidDerivative, init::zeros,
-                       loss::mse, loss::mseDerivative);
+    net.addHiddenLayer(index, width, inputSize, act::sigmoid, init::zeros, loss::mse);
 }
 
 static void addSigmoidOutput(core::Network& net, int index, int width, int inputSize)
 {
-    net.addOutputLayer(index, width, inputSize,
-                       act::sigmoid, act::sigmoidDerivative, init::zeros,
-                       loss::mse, loss::mseDerivative);
+    net.addOutputLayer(index, width, inputSize, act::sigmoid, init::zeros, loss::mse);
 }
 
-static void setRow(core::Layer& layer, int neuron, std::vector<double> row)
+static void setRow(core::Layer& layer, int neuron, std::vector<float> row)
 {
     for (int i = 0; i < static_cast<int>(row.size()); ++i)
         layer.neuronWeights[neuron * layer.inputSize + i] = row[i];
+}
+
+// One gradient-descent step on a single sample, spelled out with the engine's
+// own primitives. trainBatch() with batchSize 1 does exactly this (its
+// scaleAllGradients(1.0f) is an exact no-op).
+static void sgdStep(core::Network& net, const std::vector<float>& input,
+                    std::vector<float>& target)
+{
+    net.zeroAllGradients();
+    net.forwardPass(input.data());
+    net.accumulateGradients(target);
+    net.applyGradients();
 }
 
 // The fixture every forward/backward test below shares:
@@ -60,9 +76,9 @@ static void setRow(core::Layer& layer, int neuron, std::vector<double> row)
 //
 struct Fixture
 {
-    core::Network net{1, 1, 0.5};
-    std::vector<double> input{0.1, 0.2};
-    std::vector<double> target{1.0};
+    core::Network net{1, 1, 0.5f};
+    std::vector<float> input{0.1f, 0.2f};
+    std::vector<float> target{1.0f};
 
     // hand-derived reference values for that geometry
     double zh0, zh1, ah0, ah1, zo, ao;
@@ -71,9 +87,9 @@ struct Fixture
     {
         addSigmoidHidden(net, 0, 2, 2);
         addSigmoidOutput(net, 0, 1, 2);
-        setRow(*net.hiddenLayers[0], 0, {0.5, -0.3});
-        setRow(*net.hiddenLayers[0], 1, {0.2, 0.8});
-        setRow(*net.outputLayers[0], 0, {0.7, -0.4});
+        setRow(*net.hiddenLayers[0], 0, {0.5f, -0.3f});
+        setRow(*net.hiddenLayers[0], 1, {0.2f, 0.8f});
+        setRow(*net.outputLayers[0], 0, {0.7f, -0.4f});
 
         zh0 = 0.5 * 0.1 + (-0.3) * 0.2;
         zh1 = 0.2 * 0.1 + 0.8 * 0.2;
@@ -101,10 +117,11 @@ struct Fixture
 
 TEST(Construction_SizesLayerArrays)
 {
-    core::Network net(3, 2, 0.05);
+    core::Network net(3, 2, 0.05f);
     ASSERT_EQ_INT(net.numHiddenLayers, 3);
     ASSERT_EQ_INT(net.numOutputLayers, 2);
     ASSERT_NEAR(net.learningRate, 0.05, kTol);
+    ASSERT_EQ_INT(net.batches, 1);
     ASSERT_EQ_INT(net.hiddenLayers.size(), 3);
     ASSERT_EQ_INT(net.outputLayers.size(), 2);
     // resize() value-initialises the pointers, so the destructor is safe on
@@ -113,12 +130,17 @@ TEST(Construction_SizesLayerArrays)
     for (auto* layer : net.outputLayers) ASSERT_TRUE(layer == nullptr);
 }
 
+TEST(Construction_StoresBatchSize)
+{
+    core::Network net(1, 1, 0.05f, 16);
+    ASSERT_EQ_INT(net.batches, 16);
+}
+
 TEST(DefaultConstructor_LayerCountsMatchAllocation)
 {
-    // The default constructor sets numOutputLayers = 1 but resizes nothing, so
-    // the counts disagree with the vectors. Anything that trusts the counts --
-    // backwardPass() indexes outputLayers[0] unconditionally -- reads past the
-    // end of an empty vector.
+    // A default-constructed network owns nothing, so the counts must read 0.
+    // Anything that trusts them -- accumulateGradients() indexes outputLayers[0]
+    // unconditionally -- would otherwise read past the end of an empty vector.
     core::Network net;
     if (net.outputLayers.size() != static_cast<size_t>(net.numOutputLayers)
         || net.hiddenLayers.size() != static_cast<size_t>(net.numHiddenLayers))
@@ -132,7 +154,7 @@ TEST(DefaultConstructor_LayerCountsMatchAllocation)
 
 TEST(AddHiddenLayer_StoresLayerWithRequestedGeometry)
 {
-    core::Network net(2, 1, 0.01);
+    core::Network net(2, 1, 0.01f);
     addSigmoidHidden(net, 0, 4, 2);
     addSigmoidHidden(net, 1, 3, 4);
 
@@ -142,11 +164,12 @@ TEST(AddHiddenLayer_StoresLayerWithRequestedGeometry)
     ASSERT_EQ_INT(net.hiddenLayers[1]->layerWidth, 3);
     ASSERT_EQ_INT(net.hiddenLayers[1]->inputSize, 4);
     ASSERT_TRUE(net.hiddenLayers[0]->activationFunction == act::sigmoid);
+    ASSERT_TRUE(net.hiddenLayers[0]->activationFunctionDerivative == act::sigmoidDerivative);
 }
 
 TEST(AddOutputLayer_StoresLayerWithRequestedGeometry)
 {
-    core::Network net(0, 2, 0.01);
+    core::Network net(0, 2, 0.01f);
     addSigmoidOutput(net, 0, 1, 3);
     addSigmoidOutput(net, 1, 5, 3);
 
@@ -154,14 +177,15 @@ TEST(AddOutputLayer_StoresLayerWithRequestedGeometry)
     ASSERT_EQ_INT(net.outputLayers[0]->inputSize, 3);
     ASSERT_EQ_INT(net.outputLayers[1]->layerWidth, 5);
     ASSERT_TRUE(net.outputLayers[0]->lossFunction == loss::mse);
+    ASSERT_TRUE(net.outputLayers[0]->lossFunctionDerivative == loss::mseDerivative);
 }
 
 TEST(AddHiddenLayer_OutOfRangeIndexIsRejected)
 {
-    // hiddenLayers[layerIndex] is an unchecked operator[] write. Index 2 in a
-    // 1-slot network scribbles past the end of the vector (ASan: heap overflow)
-    // and leaks the layer it just allocated.
-    core::Network net(1, 1, 0.01);
+    // hiddenLayers[layerIndex] is an unchecked operator[] write, so an index
+    // past the end would scribble over the heap (ASan: heap overflow) and leak
+    // the layer it just allocated. The index must be checked instead.
+    core::Network net(1, 1, 0.01f);
     bool rejected = false;
     try
     {
@@ -174,23 +198,44 @@ TEST(AddHiddenLayer_OutOfRangeIndexIsRejected)
 
     if (!rejected)
         FAIL_WITH_NOTE(
-            "addHiddenLayer/addOutputLayer should bounds-check layerIndex (throw, or use .at()) "
+            "addHiddenLayer/addOutputLayer must bounds-check layerIndex (throw, or use .at()) "
             "instead of writing past the end of the layer vector",
             "addHiddenLayer(index=2) on a network with %zu hidden slots returned normally",
             net.hiddenLayers.size());
 }
 
+TEST(AddOutputLayer_OutOfRangeIndexIsRejected)
+{
+    core::Network net(1, 1, 0.01f);
+    bool rejected = false;
+    try { addSigmoidOutput(net, 3, 1, 2); }
+    catch (const std::exception&) { rejected = true; }
+
+    if (!rejected)
+        FAIL_WITH_NOTE("addOutputLayer must bounds-check layerIndex",
+                       "addOutputLayer(index=3) on a network with %zu output slots returned normally",
+                       net.outputLayers.size());
+}
+
+TEST(AddHiddenLayer_ReplacingAFilledSlotDoesNotLeak)
+{
+    // ASan/LSan is the real assertion: overwriting a slot must delete the layer
+    // that was there.
+    core::Network net(1, 1, 0.01f);
+    addSigmoidHidden(net, 0, 4, 2);
+    addSigmoidHidden(net, 0, 6, 2);
+
+    ASSERT_EQ_INT(net.hiddenLayers[0]->layerWidth, 6);
+}
+
 TEST(InitializeAllWeightsAndBiases_ReachesEveryLayer)
 {
-    core::Network net(2, 1, 0.01);
-    net.addHiddenLayer(0, 4, 2, act::sigmoid, act::sigmoidDerivative, init::xavier,
-                       loss::mse, loss::mseDerivative);
-    net.addHiddenLayer(1, 3, 4, act::sigmoid, act::sigmoidDerivative, init::xavier,
-                       loss::mse, loss::mseDerivative);
-    net.addOutputLayer(0, 1, 3, act::sigmoid, act::sigmoidDerivative, init::xavier,
-                       loss::mse, loss::mseDerivative);
+    core::Network net(2, 1, 0.01f);
+    net.addHiddenLayer(0, 4, 2, act::sigmoid, init::xavier, loss::mse);
+    net.addHiddenLayer(1, 3, 4, act::sigmoid, init::xavier, loss::mse);
+    net.addOutputLayer(0, 1, 3, act::sigmoid, init::xavier, loss::mse);
 
-    const double sentinel = 1e300;
+    const float sentinel = -98765.0f;
     for (auto* layer : net.hiddenLayers)
         std::fill(layer->neuronWeights.begin(), layer->neuronWeights.end(), sentinel);
     std::fill(net.outputLayers[0]->neuronWeights.begin(),
@@ -250,49 +295,68 @@ TEST(ForwardPass_IsRepeatableForTheSameInput)
 {
     Fixture f;
     f.net.forwardPass(f.input.data());
-    double first = f.net.outputLayers[0]->neuronOutputsActivated[0];
+    float first = f.net.outputLayers[0]->neuronOutputsActivated[0];
 
-    std::vector<double> other{0.9, 0.4};
+    std::vector<float> other{0.9f, 0.4f};
     f.net.forwardPass(other.data());
     f.net.forwardPass(f.input.data());
-    double again = f.net.outputLayers[0]->neuronOutputsActivated[0];
+    float again = f.net.outputLayers[0]->neuronOutputsActivated[0];
 
-    ASSERT_NEAR(again, first, kTol);
+    ASSERT_NEAR(again, first, kExact);
 }
 
 // ---------------------------------------------------------------------------
-// C. backwardPass
+// C. accumulateGradients / applyGradients
 // ---------------------------------------------------------------------------
 
-TEST(BackwardPass_SetsOutputDeltaFromTarget)
+TEST(AccumulateGradients_SetsOutputDeltaFromTarget)
 {
     Fixture f;
     f.net.forwardPass(f.input.data());
-    f.net.backwardPass(f.target);
+    f.net.zeroAllGradients();
+    f.net.accumulateGradients(f.target);
 
     ASSERT_NEAR(f.net.outputLayers[0]->neuronDeltas[0], f.outputDelta(), kTol);
 }
 
-TEST(BackwardPass_PropagatesDeltaIntoHiddenLayer)
+TEST(AccumulateGradients_PropagatesDeltaIntoHiddenLayer)
 {
     Fixture f;
     f.net.forwardPass(f.input.data());
-    f.net.backwardPass(f.target);
+    f.net.zeroAllGradients();
+    f.net.accumulateGradients(f.target);
 
     core::HiddenLayer& hidden = *f.net.hiddenLayers[0];
     ASSERT_NEAR_AT(0, hidden.neuronDeltas[0], f.hiddenDelta(0), kTol);
     ASSERT_NEAR_AT(1, hidden.neuronDeltas[1], f.hiddenDelta(1), kTol);
 }
 
-TEST(BackwardPass_AppliesOneGradientStepToEveryWeight)
+TEST(AccumulateGradients_DoesNotUpdateWeightsOnItsOwn)
+{
+    // The split between accumulate and apply is what makes mini-batching
+    // possible; accumulating must leave the parameters alone.
+    Fixture f;
+    std::vector<float> outBefore = f.net.outputLayers[0]->neuronWeights;
+    std::vector<float> hidBefore = f.net.hiddenLayers[0]->neuronWeights;
+
+    f.net.forwardPass(f.input.data());
+    f.net.zeroAllGradients();
+    f.net.accumulateGradients(f.target);
+
+    for (size_t i = 0; i < outBefore.size(); ++i)
+        ASSERT_NEAR_AT(i, f.net.outputLayers[0]->neuronWeights[i], outBefore[i], kExact);
+    for (size_t i = 0; i < hidBefore.size(); ++i)
+        ASSERT_NEAR_AT(i, f.net.hiddenLayers[0]->neuronWeights[i], hidBefore[i], kExact);
+}
+
+TEST(ApplyGradients_AppliesOneGradientStepToEveryWeight)
 {
     Fixture f;
     const double lr = 0.5;
     const double outWBefore[2] = {0.7, -0.4};
     const double hiddenWBefore[2][2] = {{0.5, -0.3}, {0.2, 0.8}};
 
-    f.net.forwardPass(f.input.data());
-    f.net.backwardPass(f.target);
+    sgdStep(f.net, f.input, f.target);
 
     core::HiddenLayer& hidden = *f.net.hiddenLayers[0];
     core::OutputLayer& output = *f.net.outputLayers[0];
@@ -316,7 +380,64 @@ TEST(BackwardPass_AppliesOneGradientStepToEveryWeight)
     }
 }
 
-TEST(BackwardPass_RepeatedStepsConvergeOnOneSample)
+TEST(AccumulateGradients_SumsOverAMiniBatch)
+{
+    // Two samples accumulated without an intervening apply must leave the sum
+    // of the two per-sample bias gradients on the output neuron.
+    Fixture f;
+
+    f.net.zeroAllGradients();
+    f.net.forwardPass(f.input.data());
+    f.net.accumulateGradients(f.target);
+    double firstDelta = f.net.outputLayers[0]->neuronDeltas[0];
+    double afterFirst = f.net.outputLayers[0]->neuronBiasGradients[0];
+
+    std::vector<float> other{0.9f, 0.4f};
+    f.net.forwardPass(other.data());
+    f.net.accumulateGradients(f.target);
+    double secondDelta = f.net.outputLayers[0]->neuronDeltas[0];
+    double afterSecond = f.net.outputLayers[0]->neuronBiasGradients[0];
+
+    ASSERT_NEAR(afterFirst, firstDelta, kTol);
+    ASSERT_NEAR(afterSecond, firstDelta + secondDelta, kTol);
+}
+
+TEST(ZeroAllGradients_ClearsEveryLayer)
+{
+    Fixture f;
+    f.net.forwardPass(f.input.data());
+    f.net.accumulateGradients(f.target);
+    f.net.zeroAllGradients();
+
+    for (float g : f.net.outputLayers[0]->neuronWeightGradients)
+        ASSERT_NEAR(g, 0.0, kExact);
+    for (float g : f.net.hiddenLayers[0]->neuronWeightGradients)
+        ASSERT_NEAR(g, 0.0, kExact);
+    for (float g : f.net.hiddenLayers[0]->neuronBiasGradients)
+        ASSERT_NEAR(g, 0.0, kExact);
+}
+
+TEST(ScaleAllGradients_ReachesEveryLayer)
+{
+    Fixture f;
+    f.net.zeroAllGradients();
+    f.net.forwardPass(f.input.data());
+    f.net.accumulateGradients(f.target);
+
+    std::vector<float> outBefore = f.net.outputLayers[0]->neuronWeightGradients;
+    std::vector<float> hidBefore = f.net.hiddenLayers[0]->neuronWeightGradients;
+
+    f.net.scaleAllGradients(0.5f);
+
+    for (size_t i = 0; i < outBefore.size(); ++i)
+        ASSERT_NEAR_AT(i, f.net.outputLayers[0]->neuronWeightGradients[i],
+                       0.5 * outBefore[i], kTol);
+    for (size_t i = 0; i < hidBefore.size(); ++i)
+        ASSERT_NEAR_AT(i, f.net.hiddenLayers[0]->neuronWeightGradients[i],
+                       0.5 * hidBefore[i], kTol);
+}
+
+TEST(RepeatedStepsConvergeOnOneSample)
 {
     // 200 steps on a single (input, target) pair must drive the loss down; this
     // is the end-to-end check that every sign in the chain rule is right.
@@ -325,10 +446,8 @@ TEST(BackwardPass_RepeatedStepsConvergeOnOneSample)
     double lossBefore = f.net.computeLoss(f.target);
 
     for (int step = 0; step < 200; ++step)
-    {
-        f.net.forwardPass(f.input.data());
-        f.net.backwardPass(f.target);
-    }
+        sgdStep(f.net, f.input, f.target);
+
     f.net.forwardPass(f.input.data());
     double lossAfter = f.net.computeLoss(f.target);
 
@@ -348,17 +467,17 @@ TEST(ComputeLoss_IsZeroWhenPredictionMatchesTarget)
 {
     Fixture f;
     f.net.forwardPass(f.input.data());
-    std::vector<double> selfTarget{f.net.outputLayers[0]->neuronOutputsActivated[0]};
+    std::vector<float> selfTarget{f.net.outputLayers[0]->neuronOutputsActivated[0]};
 
-    ASSERT_NEAR(f.net.computeLoss(selfTarget), 0.0, kTol);
+    ASSERT_NEAR(f.net.computeLoss(selfTarget), 0.0, kExact);
 }
 
 TEST(ComputeLoss_IsPositiveAndGrowsWithError)
 {
     Fixture f;
     f.net.forwardPass(f.input.data());
-    std::vector<double> near{f.ao + 0.1};
-    std::vector<double> far{f.ao + 0.4};
+    std::vector<float> near{static_cast<float>(f.ao) + 0.1f};
+    std::vector<float> far{static_cast<float>(f.ao) + 0.4f};
 
     double lossNear = f.net.computeLoss(near);
     double lossFar = f.net.computeLoss(far);
@@ -368,98 +487,323 @@ TEST(ComputeLoss_IsPositiveAndGrowsWithError)
 
 TEST(ComputeLoss_AgreesWithTheConfiguredLossFunction)
 {
-    // computeLoss() hardcodes a sum of squared errors. The layer carries a
-    // lossFunction pointer, and backwardPass() differentiates *that*, so the
-    // number reported during training should come from the same function.
-    // With mse and a 3-wide output the two differ by the 1/N factor.
-    core::Network net(0, 1, 0.01);
+    // The number reported during training must be the quantity being minimised,
+    // so computeLoss() calls the layer's own lossFunction rather than hardcoding
+    // a squared-error sum. With mse and a 3-wide output the two differ by 1/N.
+    core::Network net(0, 1, 0.01f);
     addSigmoidOutput(net, 0, 3, 2);
-    net.outputLayers[0]->neuronOutputsActivated = {0.5, 0.25, 0.75};
+    net.outputLayers[0]->neuronOutputsActivated = {0.5f, 0.25f, 0.75f};
 
-    std::vector<double> target{1.0, 0.0, 0.0};
+    std::vector<float> target{1.0f, 0.0f, 0.0f};
     double reported = net.computeLoss(target);
     double configured = loss::mse(target.data(),
                                   net.outputLayers[0]->neuronOutputsActivated.data(), 3);
 
-    if (!testing::nearlyEqual(reported, configured, 1e-12))
+    if (!testing::nearlyEqual(reported, configured, kTol))
         FAIL_WITH_NOTE(
-            "computeLoss() should call the layer's lossFunction rather than hardcoding "
+            "computeLoss() must call the layer's lossFunction rather than hardcoding "
             "a squared-error sum, otherwise the reported loss is not the quantity being minimised",
             "computeLoss() = %.12g, layer's mse() = %.12g", reported, configured);
 }
 
+TEST(ComputeLoss_FollowsANonMseLossFunction)
+{
+    core::Network net(0, 1, 0.01f);
+    net.addOutputLayer(0, 3, 2, act::sigmoid, init::zeros, loss::mae);
+    net.outputLayers[0]->neuronOutputsActivated = {0.5f, 0.25f, 0.75f};
+
+    std::vector<float> target{1.0f, 0.0f, 0.0f};
+    // mae = (|0.5-1| + |0.25-0| + |0.75-0|) / 3 = 1.5/3 = 0.5
+    ASSERT_NEAR(net.computeLoss(target), 0.5, kTol);
+}
+
 // ---------------------------------------------------------------------------
-// E. train
+// E. trainBatch
 // ---------------------------------------------------------------------------
+
+TEST(TrainBatch_AveragesGradientsOverTheBatch)
+{
+    // A batch of n must apply the MEAN of the per-sample gradients, so running
+    // the same sample twice in one batch equals one single-sample step.
+    std::vector<std::vector<float>> twice = {{0.1f, 0.2f}, {0.1f, 0.2f}};
+    std::vector<std::vector<float>> targets = {{1.0f}, {1.0f}};
+
+    Fixture batched;
+    batched.net.trainBatch(0, 2, twice, targets);
+
+    Fixture single;
+    sgdStep(single.net, single.input, single.target);
+
+    for (size_t i = 0; i < single.net.outputLayers[0]->neuronWeights.size(); ++i)
+        ASSERT_NEAR_AT(i, batched.net.outputLayers[0]->neuronWeights[i],
+                       single.net.outputLayers[0]->neuronWeights[i], kTol);
+    for (size_t i = 0; i < single.net.hiddenLayers[0]->neuronWeights.size(); ++i)
+        ASSERT_NEAR_AT(i, batched.net.hiddenLayers[0]->neuronWeights[i],
+                       single.net.hiddenLayers[0]->neuronWeights[i], kTol);
+}
+
+TEST(TrainBatch_ReturnsTheMeanBatchLoss)
+{
+    std::vector<std::vector<float>> inputs = {{0.1f, 0.2f}, {0.9f, 0.4f}};
+    std::vector<std::vector<float>> targets = {{1.0f}, {0.0f}};
+
+    Fixture f;
+    // Losses are measured on the weights as they were at the start of the batch,
+    // because the update only lands after every sample has been accumulated.
+    f.net.forwardPass(inputs[0].data());
+    double first = f.net.computeLoss(targets[0]);
+    f.net.forwardPass(inputs[1].data());
+    double second = f.net.computeLoss(targets[1]);
+
+    Fixture g;
+    double reported = g.net.trainBatch(0, 2, inputs, targets);
+
+    ASSERT_NEAR(reported, (first + second) / 2.0, kTol);
+}
+
+TEST(TrainBatch_HonoursTheSampleOrderArray)
+{
+    // The order-aware overload is what lets train() shuffle. Visiting [1,0] must
+    // match visiting a dataset that was written in that order.
+    std::vector<std::vector<float>> inputs = {{0.1f, 0.2f}, {0.9f, 0.4f}};
+    std::vector<std::vector<float>> targets = {{1.0f}, {0.0f}};
+    std::vector<std::vector<float>> reversedIn = {inputs[1], inputs[0]};
+    std::vector<std::vector<float>> reversedTg = {targets[1], targets[0]};
+
+    const size_t order[2] = {1, 0};
+
+    Fixture ordered;
+    ordered.net.trainBatch(order, 0, 2, inputs, targets);
+
+    Fixture rewritten;
+    rewritten.net.trainBatch(nullptr, 0, 2, reversedIn, reversedTg);
+
+    for (size_t i = 0; i < ordered.net.outputLayers[0]->neuronWeights.size(); ++i)
+        ASSERT_NEAR_AT(i, ordered.net.outputLayers[0]->neuronWeights[i],
+                       rewritten.net.outputLayers[0]->neuronWeights[i], kExact);
+}
+
+// ---------------------------------------------------------------------------
+// F. train
+// ---------------------------------------------------------------------------
+
+// Every train() call needs a loss buffer; this keeps the tests readable.
+static std::vector<float> trainFor(core::Network& net, int epochs,
+                                   std::vector<std::vector<float>>& inputs,
+                                   std::vector<std::vector<float>>& targets,
+                                   bool shuffle = false,
+                                   std::optional<unsigned> seed = std::nullopt)
+{
+    std::vector<float> history(epochs > 0 ? static_cast<size_t>(epochs) : 0u);
+    net.train(inputs, targets, epochs, history.data(), epochs, false, shuffle, seed);
+    return history;
+}
 
 TEST(Train_MoreEpochsThanSamplesStaysInBounds)
 {
     // Regression test: train() used to index the dataset by the epoch counter,
     // so it read past the end of the sample vector on epoch == numSamples.
     // 6 samples, 100 epochs.
-    silenceStdout();
-    core::Network net(1, 1, 0.05);
+    core::Network net(1, 1, 0.05f);
     addSigmoidHidden(net, 0, 2, 2);
     addSigmoidOutput(net, 0, 1, 2);
     net.initializeAllWeightsAndBiases();
 
-    std::vector<std::vector<double>> inputs = {
-        {0.1, 0.2}, {0.8, 0.9}, {0.2, 0.1}, {0.9, 0.7}, {0.4, 0.5}, {0.6, 0.4}};
-    std::vector<std::vector<double>> targets = {
-        {0.0}, {1.0}, {0.0}, {1.0}, {0.0}, {1.0}};
+    std::vector<std::vector<float>> inputs = {
+        {0.1f, 0.2f}, {0.8f, 0.9f}, {0.2f, 0.1f}, {0.9f, 0.7f}, {0.4f, 0.5f}, {0.6f, 0.4f}};
+    std::vector<std::vector<float>> targets = {
+        {0.0f}, {1.0f}, {0.0f}, {1.0f}, {0.0f}, {1.0f}};
 
-    net.train(inputs, targets, 100);
+    trainFor(net, 100, inputs, targets);
 
-    for (double w : net.outputLayers[0]->neuronWeights) ASSERT_FINITE(w);
-    for (double w : net.hiddenLayers[0]->neuronWeights) ASSERT_FINITE(w);
+    for (float w : net.outputLayers[0]->neuronWeights) ASSERT_FINITE(w);
+    for (float w : net.hiddenLayers[0]->neuronWeights) ASSERT_FINITE(w);
+}
+
+TEST(Train_FillsOneLossPerEpoch)
+{
+    core::Network net(1, 1, 0.5f);
+    addSigmoidHidden(net, 0, 2, 2);
+    addSigmoidOutput(net, 0, 1, 2);
+    net.initializeAllWeightsAndBiases();
+
+    std::vector<std::vector<float>> inputs = {{0.1f, 0.2f}, {0.8f, 0.9f}};
+    std::vector<std::vector<float>> targets = {{0.0f}, {1.0f}};
+
+    std::vector<float> history(20, -1.0f);
+    net.train(inputs, targets, 20, history.data(), 20);
+
+    for (size_t i = 0; i < history.size(); ++i)
+    {
+        ASSERT_FINITE(history[i]);
+        ASSERT_TRUE(history[i] >= 0.0f);   // every slot was written
+    }
+}
+
+TEST(Train_RejectsALossBufferSmallerThanTheEpochCount)
+{
+    core::Network net(1, 1, 0.5f);
+    addSigmoidHidden(net, 0, 2, 2);
+    addSigmoidOutput(net, 0, 1, 2);
+
+    std::vector<std::vector<float>> inputs = {{0.1f, 0.2f}};
+    std::vector<std::vector<float>> targets = {{1.0f}};
+    std::vector<float> tooSmall(3);
+
+    bool threw = false;
+    try { net.train(inputs, targets, 10, tooSmall.data(), 3); }
+    catch (const std::invalid_argument&) { threw = true; }
+
+    if (!threw)
+        FAIL_WITH_NOTE("train() must reject a loss buffer shorter than numEpochs rather than "
+                       "writing past the end of it",
+                       "train(numEpochs=10, bufferSize=3) returned normally");
+}
+
+TEST(Train_RejectsANullLossBuffer)
+{
+    core::Network net(1, 1, 0.5f);
+    addSigmoidHidden(net, 0, 2, 2);
+    addSigmoidOutput(net, 0, 1, 2);
+
+    std::vector<std::vector<float>> inputs = {{0.1f, 0.2f}};
+    std::vector<std::vector<float>> targets = {{1.0f}};
+
+    bool threw = false;
+    try { net.train(inputs, targets, 5, nullptr, 5); }
+    catch (const std::invalid_argument&) { threw = true; }
+    ASSERT_TRUE(threw);
 }
 
 TEST(Train_OneEpochVisitsEverySampleInOrder)
 {
-    // Two identically-weighted networks: one trained for a single epoch, the
-    // other stepped by hand over each sample. They must end up identical.
-    silenceStdout();
-    std::vector<std::vector<double>> inputs = {{0.1, 0.2}, {0.8, 0.9}, {0.4, 0.5}};
-    std::vector<std::vector<double>> targets = {{0.0}, {1.0}, {1.0}};
+    // Two identically-weighted networks: one trained for a single epoch with
+    // batch size 1, the other stepped by hand over each sample in order. They
+    // must end up identical.
+    std::vector<std::vector<float>> inputs = {{0.1f, 0.2f}, {0.8f, 0.9f}, {0.4f, 0.5f}};
+    std::vector<std::vector<float>> targets = {{0.0f}, {1.0f}, {1.0f}};
 
     auto build = [](core::Network& net) {
         addSigmoidHidden(net, 0, 2, 2);
         addSigmoidOutput(net, 0, 1, 2);
-        setRow(*net.hiddenLayers[0], 0, {0.5, -0.3});
-        setRow(*net.hiddenLayers[0], 1, {0.2, 0.8});
-        setRow(*net.outputLayers[0], 0, {0.7, -0.4});
+        setRow(*net.hiddenLayers[0], 0, {0.5f, -0.3f});
+        setRow(*net.hiddenLayers[0], 1, {0.2f, 0.8f});
+        setRow(*net.outputLayers[0], 0, {0.7f, -0.4f});
     };
 
-    core::Network trained(1, 1, 0.5);
-    core::Network stepped(1, 1, 0.5);
+    core::Network trained(1, 1, 0.5f, 1);
+    core::Network stepped(1, 1, 0.5f, 1);
     build(trained);
     build(stepped);
 
-    trained.train(inputs, targets, 1);
+    trainFor(trained, 1, inputs, targets);
     for (size_t sample = 0; sample < inputs.size(); ++sample)
-        stepped.runEpoch(inputs[sample], targets[sample]);
+        sgdStep(stepped, inputs[sample], targets[sample]);
 
     for (size_t i = 0; i < stepped.hiddenLayers[0]->neuronWeights.size(); ++i)
         ASSERT_NEAR_AT(i, trained.hiddenLayers[0]->neuronWeights[i],
-                       stepped.hiddenLayers[0]->neuronWeights[i], kTol);
+                       stepped.hiddenLayers[0]->neuronWeights[i], kExact);
     for (size_t i = 0; i < stepped.outputLayers[0]->neuronWeights.size(); ++i)
         ASSERT_NEAR_AT(i, trained.outputLayers[0]->neuronWeights[i],
-                       stepped.outputLayers[0]->neuronWeights[i], kTol);
+                       stepped.outputLayers[0]->neuronWeights[i], kExact);
+}
+
+TEST(Train_BatchSizeZeroMeansOneBatchPerEpoch)
+{
+    // batches <= 0 falls back to the whole dataset, so one epoch is one update
+    // and must equal a single hand-run full batch.
+    std::vector<std::vector<float>> inputs = {{0.1f, 0.2f}, {0.8f, 0.9f}, {0.4f, 0.5f}};
+    std::vector<std::vector<float>> targets = {{0.0f}, {1.0f}, {1.0f}};
+
+    core::Network wholeBatch(1, 1, 0.5f, 0);
+    core::Network byHand(1, 1, 0.5f, 0);
+    auto build = [](core::Network& net) {
+        addSigmoidHidden(net, 0, 2, 2);
+        addSigmoidOutput(net, 0, 1, 2);
+        setRow(*net.hiddenLayers[0], 0, {0.5f, -0.3f});
+        setRow(*net.hiddenLayers[0], 1, {0.2f, 0.8f});
+        setRow(*net.outputLayers[0], 0, {0.7f, -0.4f});
+    };
+    build(wholeBatch);
+    build(byHand);
+
+    trainFor(wholeBatch, 1, inputs, targets);
+    byHand.trainBatch(0, 3, inputs, targets);
+
+    for (size_t i = 0; i < byHand.outputLayers[0]->neuronWeights.size(); ++i)
+        ASSERT_NEAR_AT(i, wholeBatch.outputLayers[0]->neuronWeights[i],
+                       byHand.outputLayers[0]->neuronWeights[i], kExact);
+}
+
+TEST(Train_ShufflingIsReproducibleForAGivenSeed)
+{
+    std::vector<std::vector<float>> inputs = {
+        {0.1f, 0.2f}, {0.8f, 0.9f}, {0.2f, 0.1f}, {0.9f, 0.7f}, {0.4f, 0.5f}};
+    std::vector<std::vector<float>> targets = {{0.0f}, {1.0f}, {0.0f}, {1.0f}, {0.0f}};
+
+    auto run = [&inputs, &targets](unsigned seed) {
+        core::Network net(1, 1, 0.5f, 2);
+        addSigmoidHidden(net, 0, 3, 2);
+        addSigmoidOutput(net, 0, 1, 3);
+        setRow(*net.hiddenLayers[0], 0, {0.5f, -0.3f});
+        setRow(*net.hiddenLayers[0], 1, {0.2f, 0.8f});
+        setRow(*net.hiddenLayers[0], 2, {-0.6f, 0.4f});
+        setRow(*net.outputLayers[0], 0, {0.7f, -0.4f, 0.2f});
+        return trainFor(net, 30, inputs, targets, true, seed);
+    };
+
+    std::vector<float> a = run(99);
+    std::vector<float> b = run(99);
+    std::vector<float> c = run(100);
+
+    for (size_t i = 0; i < a.size(); ++i)
+        ASSERT_NEAR_AT(i, a[i], b[i], kExact);
+
+    bool differs = false;
+    for (size_t i = 0; i < a.size(); ++i)
+        if (a[i] != c[i]) { differs = true; break; }
+    if (!differs)
+        FAIL_WITH_NOTE("a different shuffle seed should produce a different visiting order",
+                       "seeds 99 and 100 produced identical loss histories");
+}
+
+TEST(Train_ShuffleVisitsEverySampleOncePerEpoch)
+{
+    // A shuffle must permute the order, not resample it: one epoch with batch
+    // size == the dataset accumulates every sample exactly once, so the update
+    // is identical whether or not the order was shuffled.
+    std::vector<std::vector<float>> inputs = {
+        {0.1f, 0.2f}, {0.8f, 0.9f}, {0.2f, 0.1f}, {0.9f, 0.7f}};
+    std::vector<std::vector<float>> targets = {{0.0f}, {1.0f}, {0.0f}, {1.0f}};
+
+    auto run = [&inputs, &targets](bool shuffle) {
+        core::Network net(1, 1, 0.5f, 0);     // one batch per epoch
+        addSigmoidHidden(net, 0, 2, 2);
+        addSigmoidOutput(net, 0, 1, 2);
+        setRow(*net.hiddenLayers[0], 0, {0.5f, -0.3f});
+        setRow(*net.hiddenLayers[0], 1, {0.2f, 0.8f});
+        setRow(*net.outputLayers[0], 0, {0.7f, -0.4f});
+        trainFor(net, 1, inputs, targets, shuffle, 7u);
+        return net.outputLayers[0]->neuronBiases[0];
+    };
+
+    // Summation order differs, so allow float32 slack rather than demanding
+    // bit equality.
+    ASSERT_NEAR(run(true), run(false), kTol);
 }
 
 TEST(Train_LowersLossAcrossEpochs)
 {
-    silenceStdout();
-    core::Network net(1, 1, 0.5);
+    core::Network net(1, 1, 0.5f);
     addSigmoidHidden(net, 0, 3, 2);
     addSigmoidOutput(net, 0, 1, 3);
-    setRow(*net.hiddenLayers[0], 0, {0.5, -0.3});
-    setRow(*net.hiddenLayers[0], 1, {0.2, 0.8});
-    setRow(*net.hiddenLayers[0], 2, {-0.6, 0.4});
-    setRow(*net.outputLayers[0], 0, {0.7, -0.4, 0.2});
+    setRow(*net.hiddenLayers[0], 0, {0.5f, -0.3f});
+    setRow(*net.hiddenLayers[0], 1, {0.2f, 0.8f});
+    setRow(*net.hiddenLayers[0], 2, {-0.6f, 0.4f});
+    setRow(*net.outputLayers[0], 0, {0.7f, -0.4f, 0.2f});
 
-    std::vector<std::vector<double>> inputs = {{0.1, 0.2}, {0.8, 0.9}, {0.2, 0.1}, {0.9, 0.7}};
-    std::vector<std::vector<double>> targets = {{0.0}, {1.0}, {0.0}, {1.0}};
+    std::vector<std::vector<float>> inputs = {{0.1f, 0.2f}, {0.8f, 0.9f}, {0.2f, 0.1f}, {0.9f, 0.7f}};
+    std::vector<std::vector<float>> targets = {{0.0f}, {1.0f}, {0.0f}, {1.0f}};
 
     auto datasetLoss = [&net, &inputs, &targets]() {
         double total = 0.0;
@@ -472,27 +816,53 @@ TEST(Train_LowersLossAcrossEpochs)
     };
 
     double before = datasetLoss();
-    net.train(inputs, targets, 300);
+    std::vector<float> history = trainFor(net, 300, inputs, targets);
     double after = datasetLoss();
 
     ASSERT_FINITE(after);
     if (!(after < before))
         FAIL_WITH_NOTE("300 epochs on a separable dataset should reduce the mean loss",
                        "mean loss before %.12g, after %.12g", before, after);
+    // The reported history must track the same descent.
+    ASSERT_TRUE(history.back() < history.front());
+}
+
+TEST(Train_VerboseStillTrains)
+{
+    // verbose only adds printing; it must not change the numbers.
+    silenceStdout();
+    std::vector<std::vector<float>> inputs = {{0.1f, 0.2f}, {0.8f, 0.9f}};
+    std::vector<std::vector<float>> targets = {{0.0f}, {1.0f}};
+
+    auto run = [&inputs, &targets](bool verbose) {
+        core::Network net(1, 1, 0.5f, 1);
+        addSigmoidHidden(net, 0, 2, 2);
+        addSigmoidOutput(net, 0, 1, 2);
+        setRow(*net.hiddenLayers[0], 0, {0.5f, -0.3f});
+        setRow(*net.hiddenLayers[0], 1, {0.2f, 0.8f});
+        setRow(*net.outputLayers[0], 0, {0.7f, -0.4f});
+        std::vector<float> history(25);
+        net.train(inputs, targets, 25, history.data(), 25, verbose, false, std::nullopt, 5);
+        return history;
+    };
+
+    std::vector<float> quiet = run(false);
+    std::vector<float> loud = run(true);
+    for (size_t i = 0; i < quiet.size(); ++i)
+        ASSERT_NEAR_AT(i, quiet[i], loud[i], kExact);
 }
 
 TEST(Train_MismatchedInputAndTargetCountsIsRejected)
 {
-    silenceStdout();
-    core::Network net(1, 1, 0.05);
+    core::Network net(1, 1, 0.05f);
     addSigmoidHidden(net, 0, 2, 2);
     addSigmoidOutput(net, 0, 1, 2);
 
-    std::vector<std::vector<double>> inputs = {{0.1, 0.2}, {0.8, 0.9}};
-    std::vector<std::vector<double>> targets = {{0.0}};  // one short
+    std::vector<std::vector<float>> inputs = {{0.1f, 0.2f}, {0.8f, 0.9f}};
+    std::vector<std::vector<float>> targets = {{0.0f}};  // one short
 
     bool threw = false;
-    try { net.train(inputs, targets, 5); }
+    try { trainFor(net, 5, inputs, targets); }
     catch (const std::invalid_argument&) { threw = true; }
 
     if (!threw)
@@ -505,36 +875,39 @@ TEST(Train_MismatchedInputAndTargetCountsIsRejected)
 
 TEST(Train_EmptyDatasetIsANoOp)
 {
-    silenceStdout();
-    core::Network net(1, 1, 0.05);
+    core::Network net(1, 1, 0.05f);
     addSigmoidHidden(net, 0, 2, 2);
     addSigmoidOutput(net, 0, 1, 2);
-    setRow(*net.outputLayers[0], 0, {0.7, -0.4});
+    setRow(*net.outputLayers[0], 0, {0.7f, -0.4f});
+    std::vector<float> before = net.outputLayers[0]->neuronWeights;
 
-    std::vector<std::vector<double>> inputs;
-    std::vector<std::vector<double>> targets;
-    net.train(inputs, targets, 10);
+    std::vector<std::vector<float>> inputs;
+    std::vector<std::vector<float>> targets;
+    trainFor(net, 10, inputs, targets);
 
-    ASSERT_NEAR_AT(0, net.outputLayers[0]->neuronWeights[0], 0.7, kTol);
-    ASSERT_NEAR_AT(1, net.outputLayers[0]->neuronWeights[1], -0.4, kTol);
+    for (size_t i = 0; i < before.size(); ++i)
+        ASSERT_NEAR_AT(i, net.outputLayers[0]->neuronWeights[i], before[i], kExact);
 }
 
 TEST(Train_ZeroEpochsLeavesWeightsUntouched)
 {
-    silenceStdout();
     Fixture f;
-    std::vector<std::vector<double>> inputs = {{0.1, 0.2}};
-    std::vector<std::vector<double>> targets = {{1.0}};
+    std::vector<float> outBefore = f.net.outputLayers[0]->neuronWeights;
+    std::vector<float> hidBefore = f.net.hiddenLayers[0]->neuronWeights;
 
-    f.net.train(inputs, targets, 0);
+    std::vector<std::vector<float>> inputs = {{0.1f, 0.2f}};
+    std::vector<std::vector<float>> targets = {{1.0f}};
 
-    ASSERT_NEAR_AT(0, f.net.outputLayers[0]->neuronWeights[0], 0.7, kTol);
-    ASSERT_NEAR_AT(1, f.net.outputLayers[0]->neuronWeights[1], -0.4, kTol);
-    ASSERT_NEAR_AT(0, f.net.hiddenLayers[0]->neuronWeights[0], 0.5, kTol);
+    trainFor(f.net, 0, inputs, targets);
+
+    for (size_t i = 0; i < outBefore.size(); ++i)
+        ASSERT_NEAR_AT(i, f.net.outputLayers[0]->neuronWeights[i], outBefore[i], kExact);
+    for (size_t i = 0; i < hidBefore.size(); ++i)
+        ASSERT_NEAR_AT(i, f.net.hiddenLayers[0]->neuronWeights[i], hidBefore[i], kExact);
 }
 
 // ---------------------------------------------------------------------------
-// F. lifetime
+// G. lifetime
 // ---------------------------------------------------------------------------
 
 TEST(Destructor_ReleasesLayersWithoutDoubleFree)
@@ -542,7 +915,7 @@ TEST(Destructor_ReleasesLayersWithoutDoubleFree)
     // ASan is the real assertion here: a leak, a double delete or a delete of an
     // unfilled slot shows up in the --asan build.
     {
-        core::Network net(2, 1, 0.01);
+        core::Network net(2, 1, 0.01f);
         addSigmoidHidden(net, 0, 3, 2);
         addSigmoidHidden(net, 1, 2, 3);
         addSigmoidOutput(net, 0, 1, 2);
@@ -553,10 +926,10 @@ TEST(Destructor_ReleasesLayersWithoutDoubleFree)
 
 TEST(InitializeAllWeightsAndBiases_SkipsUnfilledSlots)
 {
-    // A network constructed for N hidden layers but given fewer dereferences a
-    // null pointer here. The destructor handles the same case fine (delete
-    // nullptr is a no-op), so this loop should skip nulls too.
-    core::Network net(2, 1, 0.01);
+    // A network constructed for N hidden layers but given fewer holds a null in
+    // the remaining slots. The destructor handles that fine (delete nullptr is a
+    // no-op), so this loop must skip nulls rather than dereference one.
+    core::Network net(2, 1, 0.01f);
     addSigmoidHidden(net, 0, 3, 2);
     // slot 1 deliberately left null
     addSigmoidOutput(net, 0, 1, 3);
