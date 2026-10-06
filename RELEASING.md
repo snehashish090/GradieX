@@ -105,24 +105,29 @@ Each release lives in its own directory (`0.0.3/`, `0.0.4/`, ...). Before taggin
      "import gradiex; print(gradiex.__version__)"
    ```
 
-6. **Land the release on the default branch.** The tag has to point at a commit that
+6. **Dry-run the matrix if it has been a while.** `workflow_dispatch` builds every
+   wheel without publishing anything, so a stale runner label or a retired action
+   runtime surfaces here rather than on the tag. Do this before a first release and
+   any time the matrix in `[tool.cibuildwheel]` or the runner list changes.
+
+7. **Land the release on the default branch.** The tag has to point at a commit that
    contains the workflow — if `release.yml` is untracked or unmerged, pushing the tag
    starts no pipeline at all and you will wait for a upload that was never queued.
 
-7. **Tag and push.** The tag is the publish button:
+8. **Tag and push.** The tag is the publish button:
 
    ```bash
    git tag -a v0.0.3 -m "v0.0.3"
    git push origin main --follow-tags     # or: git push origin v0.0.3
    ```
 
-8. **Watch the run** under the repository's *Actions* tab. `publish` needs
+9. **Watch the run** under the repository's *Actions* tab. `publish` needs
    `wheels` and `sdist` to succeed first; if any wheel fails its XOR test, nothing is
    uploaded.
 
-9. **Verify on PyPI**, then install the published version into a fresh environment and
-   train something. A wheel that imports is not the same as a wheel that works — which
-   is why CI trains before uploading.
+10. **Verify on PyPI**, then install the published version into a fresh environment and
+    train something. A wheel that imports is not the same as a wheel that works — which
+    is why CI trains before uploading.
 
 ## The build matrix
 
@@ -134,10 +139,20 @@ same configuration applies to a local `cibuildwheel` run:
 - **Linux** is built on both `ubuntu-latest` (x86_64) and `ubuntu-24.04-arm`
   (aarch64, native — no QEMU). cibuildwheel selects manylinux *and* musllinux, so
   Alpine gets wheels too.
-- **macOS** is built on `macos-13` (Intel) and `macos-14` (Apple silicon).
-  `MACOSX_DEPLOYMENT_TARGET` is set per runner. Without it, a wheel is tagged with
-  whatever macOS the runner happens to be running (`macosx_26_0`) and installs almost
-  nowhere.
+- **macOS** is built on `macos-15-intel` (Intel) and `macos-15` (Apple silicon).
+  `MACOSX_DEPLOYMENT_TARGET` is set per runner — `10.15` for Intel, `11.0` for Apple
+  silicon, the floor at which the C++20 standard library is available. Without it, a
+  wheel is tagged with whatever macOS the runner happens to be running
+  (`macosx_26_0`) and installs almost nowhere.
+
+  > **These labels rot.** `macos-13` was retired on 2025-09-19 and `macos-14` retires
+  > on 2026-11-02, and a retired label fails the whole matrix before a single wheel is
+  > built — the failure looks nothing like a packaging bug. Before a release, check
+  > the label list against
+  > [actions/runner-images](https://github.com/actions/runner-images#available-images).
+  > The same applies to the `actions/*` majors: GitHub removes old Node runtimes on a
+  > schedule (Node 20 went on 2026-09-23), and an action pinned to a removed runtime
+  > fails even though its tag still resolves.
 - **Windows** is `windows-latest`, x64.
 - **32-bit x86 and win32 are skipped**: there are no numpy/matplotlib wheels for them
   to test against.
