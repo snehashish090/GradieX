@@ -25,23 +25,26 @@ jobs:
         include:
           - os: ubuntu-latest       # manylinux + musllinux x86_64
           - os: ubuntu-24.04-arm    # native aarch64, no QEMU
-          - os: macos-13            # x86_64
+          # macos-13 is retired and macos-14 retires on 2026-11-02; the Intel
+          # image is now macos-15-intel. Without this the whole matrix fails
+          # before a wheel is built.
+          - os: macos-15-intel      # x86_64
             deployment-target: "10.15"
-          - os: macos-14            # Apple silicon
+          - os: macos-15            # Apple silicon
             deployment-target: "11.0"
           - os: windows-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: pypa/cibuildwheel@v4.2.1
+      - uses: pypa/cibuildwheel@v4.3.0
         env:
           # Without this, a wheel built on the runner is tagged with the
           # runner's own macOS version (e.g. macosx_26_0) and installs almost
           # nowhere. 10.15/11.0 are the floors for the C++20 standard library.
           MACOSX_DEPLOYMENT_TARGET: ${{ matrix.deployment-target }}
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: wheels-${{ matrix.os }}
           path: wheelhouse/*.whl
@@ -50,10 +53,10 @@ jobs:
     name: sdist
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
-          python-version: "3.12"
+          python-version: "3.14"
 
       - run: pipx run build --sdist
 
@@ -65,7 +68,7 @@ jobs:
           /tmp/check/bin/pip install --no-binary gradiex dist/*.tar.gz
           MPLBACKEND=Agg /tmp/check/bin/python -c "import gradiex; print('sdist OK', gradiex.__version__)"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: sdist
           path: dist/*.tar.gz
@@ -79,7 +82,7 @@ jobs:
     permissions:
       id-token: write   # trusted publishing -- no API token stored in the repo
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
