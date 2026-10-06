@@ -7,83 +7,80 @@ backpropagation by reading the source.
 ## Getting started
 
 ```bash
-git clone https://github.com/<owner>/GradieX.git
+git clone https://github.com/snehashish090/GradieX.git
 cd GradieX
 
-# build and run the examples
-g++ -std=c++17 -O2 -Wall -Wextra -pedantic main.cpp -o gradiex && ./gradiex
+# build and run the C++ example
+clang++ -std=c++20 -O2 -fopenmp-simd main.cpp -o main && ./main
 
-# build and run the test suite
-g++ -std=c++17 -O2 -Wall -Wextra -pedantic tests/test_gradiex.cpp -o test_gradiex
-./test_gradiex
+# build and run both C++ suites
+./tests/run_tests.sh
 ```
 
-The suite must print `112 passed, 0 failed` and exit `0`. It exits non-zero on any
-failure, so it works directly in CI or a pre-commit hook.
+The engine is C++20 — `core/` uses `<numbers>` and `#pragma omp simd`. The runner
+compiles `tests/test_layer.cpp` and `tests/test_network.cpp`, and a non-zero exit
+means something failed, so it works directly in CI or a pre-commit hook.
 
-There is no build system on purpose. `main.cpp` is one translation unit with no
-dependencies beyond the C++17 standard library, and `tests/test_gradiex.cpp`
-`#include`s it directly (renaming its `main`), so there is no duplicated source to
-keep in sync.
+To exercise the Python bindings as well:
+
+```bash
+python3 setup.py build_ext --inplace
+MPLBACKEND=Agg python3 python/test_bindings.py
+MPLBACKEND=Agg python3 python/test_plotting.py
+```
+
+`python/test_*.py` are assertion scripts rather than pytest tests: they import
+`gradiex` from the release root and print `ok` per check. `MPLBACKEND=Agg` keeps the
+plotting checks headless.
+
+There is no build system on purpose. `core/` is header-only, `main.cpp` is one
+translation unit, and `python/gradiex_module.cpp` is the only other one — it
+`#include`s `core/network.h` and is compiled by `setup.py`.
 
 ## Before you open a pull request
 
-1. **The test suite passes.** All 112 checks, not just the ones near your change.
-2. **Zero compiler warnings** under `-Wall -Wextra -pedantic`.
-3. **Clean under sanitizers:**
+1. **The suites pass.** `./tests/run_tests.sh` (91 checks across the two binaries) and
+   the Python checks above — not just the ones near your change.
+2. **Zero compiler warnings** under `-Wall -Wextra`.
+3. **Clean under sanitizers**, which catches the out-of-bounds accesses a plain build
+   survives:
    ```bash
-   g++ -std=c++17 -O1 -g -fsanitize=address,undefined tests/test_gradiex.cpp -o san_test
-   ./san_test
+   ./tests/run_tests.sh --asan
    ```
-4. **New behaviour comes with a test.** If it can be wrong, it needs a check.
-5. **Update the docs.** The file header in `main.cpp` and `README.md` both document
-   the API; if you change it, change them. Add a `CHANGELOG.md` entry.
+4. **Run `--simd` at least once.** The `#pragma omp simd` directives are discarded in
+   silence when the build does not enable them, so a malformed clause is invisible
+   until something turns them on:
+   ```bash
+   ./tests/run_tests.sh --simd
+   ```
+5. **New behaviour comes with a test.** If it can be wrong, it needs a check.
+6. **Update the docs.** `README.md` documents the API; if you change it, change that,
+   and add a `CHANGELOG.md` entry. If you change what the binding exposes, update
+   `python/gradiex_module.cpp` too — the two are maintained by hand.
 
 ## Touching the backward pass
 
-If you modify anything in the gradient path, the gradient check in Test 1 is the
-thing that decides whether you got it right. It compares analytic gradients against
-central differences across ten network configurations, to roughly $10^{-11}$ absolute.
-It is not a smoke test — it is the reason this library can be trusted.
+Anything in `core/layer.h` or `core/network.h` that touches gradients deserves care:
+this is the code that can be wrong while still producing a network that trains
+plausibly. The tests that decide whether you got it right are
+`ComputeGradients_*`, `AccumulateGradients_*`, the `OutputLayer_ErrorSignal_*` /
+`HiddenLayer_ErrorSignal_*` pairs, and
+`Integration_ForwardBackwardUpdateLowersLoss`.
 
-Add a configuration to the `cases` list in Test 1 if you add an activation, a loss,
-or a new path through `accumulate_gradients`.
+There is no longer a central-difference gradient check — v0.0.3's references are
+computed in the tests from the definitions, per-case, rather than numerically. If you
+add an activation, a loss, or a new path through `accumulateGradients`, add the case
+that pins it down; the full list of what is and is not covered is in the
+`tests/README.md` table.
 
 ## Invariants
 
-These are not style preferences. Breaking one produces a library that trains
-plausibly and is silently wrong.
-
-1. **Gradients accumulate; no weight moves until `apply_gradients()`.** This is what
-   makes mini-batching exact, and it is what guarantees the backward pass reads
-   pre-update weights when it propagates
-   $\partial L / \partial a_j^{(l-1)} = \sum_i \delta_i^{(l)} w_{ij}^{(l)}$. Updating
-   a layer's weights before propagating through it corrupts every layer behind it.
-
-2. **`input_cache` must hold the input from *this* forward pass.** Weight gradients
-   are meaningless against a stale cache.
-
-3. **`Neuron::output` is the activation *before* the dropout mask;
-   `Layer::output_vector` is the value *after* it.** The sigmoid and tanh derivatives
-   are written in terms of the unmasked output, so masking `Neuron::output` silently
-   corrupts them. With dropout off the two are equal, which is exactly why this is
-   easy to break without noticing.
-
-4. **Softmax is layer-wide and fused with categorical cross-entropy.**
-   `Neuron::activate` and `Neuron::activation_derivative` throw on softmax rather
-   than return a wrong answer. Softmax's Jacobian is a dense $n \times n$ matrix and
-   the scalar-in / scalar-out derivative signature cannot express it. The supported
-   path uses $\partial L / \partial \mathbf{z} = \mathbf{p} - \mathbf{y}$.
-
-5. **`Activation` and `Loss` are enums on the hot path.** Strings are parsed once at
-   the API boundary. Do not push a string comparison back into `Layer::forward` or
-   the per-neuron loops.
-
-6. **The five-argument `train()` stays bit-identical** to a manual fixed-order,
-   one-sample-at-a-time loop. A test asserts this. It is the backward-compatible
-   entry point.
-
-7. **Bump the model format version** in `save()`/`load()` if the file layout changes.
+The README maintains the authoritative list under
+[Invariants](README.md#invariants) — flat-buffer offsets, the accumulator tree that
+keeps the loop bit-exact, no allocation between `build()` and destruction, gradients
+accumulating until the update step, and `input_cache_` holding the current pass's
+input. Read it before changing the memory layout or the training loop. Breaking one
+produces a library that trains plausibly and is silently wrong.
 
 ## Code style
 
@@ -96,17 +93,21 @@ Match the surrounding code rather than any external guide:
   deliberate; it is what makes the math readable next to the code.
 - Comments explain *why*, not *what*. The math is in the file header; inline
   comments are for decisions a reader would otherwise question.
-- No new dependencies. Standard library only.
+- No new dependencies. Standard library only. The Python layer adds `numpy` and
+  `matplotlib` and nothing else.
 
 ## Good first contributions
 
 The roadmap in `README.md` lists the open work. In rough order of value:
 
 - **Momentum / Adam optimizers.** Plain SGD is the current ceiling on hard problems.
-- **Per-layer widths from the constructor.** `load()` already reads per-layer shapes,
-  so the engine handles non-uniform networks; only the constructor is restrictive.
-- **Early stopping** driven by `TrainHistory`, which already tracks the best epoch.
-- **Per-layer dropout rates.**
+- **Model save/load.** The flat weight layout makes this close to two `memcpy`s plus
+  a small header.
+- **Early stopping driven by the loss history.**
+- **Per-layer widths from the constructor.** The engine handles non-uniform networks;
+  only the constructor is restrictive.
+- **A trainable multi-class path.** Softmax is fused with cross-entropy and refuses to
+  be evaluated on its own; restoring multi-class means the layer-wide path.
 
 Smaller but genuinely useful: more worked examples, a CMake option for people who
 want one, or feature normalization helpers (the engine assumes roughly unit-scale

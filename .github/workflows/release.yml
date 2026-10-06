@@ -1,0 +1,86 @@
+name: Build and publish
+
+# Wheels are built on every push to a release tag, and on pull requests that
+# touch the engine or the build, so a break is caught before release rather
+# than at upload time. Publishing runs on tags only.
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - "core/**"
+      - "python/**"
+      - "setup.py"
+      - "pyproject.toml"
+      - ".github/workflows/release.yml"
+  workflow_dispatch:
+
+jobs:
+  wheels:
+    name: wheels · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest       # manylinux + musllinux x86_64
+          - os: ubuntu-24.04-arm    # native aarch64, no QEMU
+          - os: macos-13            # x86_64
+            deployment-target: "10.15"
+          - os: macos-14            # Apple silicon
+            deployment-target: "11.0"
+          - os: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pypa/cibuildwheel@v4.2.1
+        env:
+          # Without this, a wheel built on the runner is tagged with the
+          # runner's own macOS version (e.g. macosx_26_0) and installs almost
+          # nowhere. 10.15/11.0 are the floors for the C++20 standard library.
+          MACOSX_DEPLOYMENT_TARGET: ${{ matrix.deployment-target }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}
+          path: wheelhouse/*.whl
+
+  sdist:
+    name: sdist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pipx run build --sdist
+
+      # The sdist is the fallback for every platform without a wheel, so it has
+      # to build on its own -- core/*.h reach it only via `depends` in setup.py.
+      - name: install the sdist in a clean env and train
+        run: |
+          python -m venv /tmp/check
+          /tmp/check/bin/pip install --no-binary gradiex dist/*.tar.gz
+          MPLBACKEND=Agg /tmp/check/bin/python -c "import gradiex; print('sdist OK', gradiex.__version__)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+
+  publish:
+    name: publish to PyPI
+    needs: [wheels, sdist]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    environment: pypi
+    permissions:
+      id-token: write   # trusted publishing -- no API token stored in the repo
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: pypa/gh-action-pypi-publish@release/v1

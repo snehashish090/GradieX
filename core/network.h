@@ -14,7 +14,7 @@
         - The network uses vectors of pointers to manage hidden and output layers.
         - Each layer is dynamically allocated and deallocated in the Network destructor.
         - This ensures contiguous memory allocation for the vectors themselves while allowing flexible layer management.
-    
+
     The math behind this architecture is included under math.tex and math.pdf
 */
 #pragma once
@@ -125,7 +125,7 @@ namespace core
         {
             /**
              * @brief Initializes the weights and biases for all layers in the network.
-             * 
+             *
              * Why do we not use SIMD instructions for initializing weights and biases?
              * Because the underlying functions rely on std::random and other non-SIMD-friendly operations.
              */
@@ -176,7 +176,7 @@ namespace core
         {
             /**
              * @brief Zeros out all gradients for all layers in the network.
-             * This is typically done at the beginning of a new training iteration to prevent 
+             * This is typically done at the beginning of a new training iteration to prevent
              * accumulation of gradients from previous iterations.
              */
             for (auto& layer : hiddenLayers)
@@ -214,9 +214,9 @@ namespace core
             /**
              * @brief Accumulates gradients for all layers in the network based on the provided target outputs.
              * @param targetOutputs The target output vectors for the current batch.
-             * 
-             * We have moved from the older versions as we now batch and accumalate our gradients. 
-             * Why? 
+             *
+             * We have moved from the older versions as we now batch and accumalate our gradients.
+             * Why?
              * Accumulating gradients over a batch helps in stabilizing the training process and can lead
              * to better convergence compared to updating weights after every single sample. [form my research on this topic]
              */
@@ -230,7 +230,7 @@ namespace core
                 currentLayer->computeGradients();
             }
 
-            // Transfer the results from the output layer into aliases 
+            // Transfer the results from the output layer into aliases
             // These aliases will be used to propagate the error signals backward through the hidden layers.
             int nextLayerWidth = this->outputLayers[0]->layerWidth;
             const float* nextLayerDeltas = this->outputLayers[0]->neuronDeltas.data();
@@ -238,7 +238,7 @@ namespace core
 
             // Go through the hidden layers in reverse order to propagate the error signals backward.
             for (int i = this->numHiddenLayers - 1; i >= 0; i--)
-            {   
+            {
                 // Current hidden layer to process
                 HiddenLayer* currentLayer = this->hiddenLayers[i];
                 currentLayer->computeErrorSignal(nextLayerWidth, nextLayerDeltas, nextLayerWeights);
@@ -293,7 +293,7 @@ namespace core
 
             // Zero out all gradients before processing the batch to ensure fresh accumulation.
             zeroAllGradients();
-            
+
             float batchLoss = 0.0f;
             for (int b = 0; b < batchSize; ++b)
             {

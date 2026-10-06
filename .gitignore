@@ -13,3 +13,11 @@ __editable__*
 .vscode/
 # benchmark binaries
 bench/build/
+
+# Test binaries (tests/run_tests.sh writes here)
+tests/build/
+
+# Editors and OS cruft. .DS_Store is already tracked in history, so dropping it
+# from the index wants its own commit; this at least stops new ones appearing.
+.DS_Store
+.idea/

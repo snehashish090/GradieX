@@ -12,10 +12,10 @@
 
 **A feedforward neural network engine in C++20 — no BLAS, no Eigen, no dependencies.**
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/snehashish090/GradieX/blob/main/LICENSE)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C.svg)](https://en.cppreference.com/w/cpp/20)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-3776AB.svg)](https://www.python.org/)
-[![Version](https://img.shields.io/badge/version-0.0.3-orange.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.0.3-orange.svg)](https://github.com/snehashish090/GradieX/blob/main/CHANGELOG.md)
 
 </div>
 
@@ -180,10 +180,22 @@ alias.
 
 ## Install
 
-Requires a C++20 compiler and Python 3.9+. `numpy` and `matplotlib` come with it.
+```bash
+pip install gradiex
+```
+
+Wheels are published for CPython 3.9–3.14 on Linux (x86_64 and aarch64,
+manylinux and musllinux), macOS (Intel and Apple silicon) and Windows. Anywhere
+without a wheel, pip falls back to the sdist and compiles the engine for you —
+that requires a C++20 compiler and Python 3.9+.
+
+`numpy` and `matplotlib` are installed as dependencies.
+
+### From source
+
+Inside a checkout of this release directory:
 
 ```bash
-cd 0.0.3
 pip install .            # or: pip install -e .   for development
 ```
 
@@ -266,14 +278,14 @@ accepts `theme="light"` or `theme="dark"`.
 
 | | |
 |---|---|
-| ![Training loss](examples/plots/01_loss.png) | ![Architecture](examples/plots/04_architecture.png) |
+| ![Training loss](https://raw.githubusercontent.com/snehashish090/GradieX/main/examples/plots/01_loss.png) | ![Architecture](https://raw.githubusercontent.com/snehashish090/GradieX/main/examples/plots/04_architecture.png) |
 | **`plot_loss(smooth=25)`** — the raw trace recedes and the moving average carries the line. The final value is labelled directly. | **`plot_architecture()`** — layers wider than `max_nodes` are drawn truncated, but the label always states the true width. |
-| ![Decision boundary](examples/plots/07_decision_boundary.png) | ![Loss landscape](examples/plots/10_loss_landscape_log.png) |
+| ![Decision boundary](https://raw.githubusercontent.com/snehashish090/GradieX/main/examples/plots/07_decision_boundary.png) | ![Loss landscape](https://raw.githubusercontent.com/snehashish090/GradieX/main/examples/plots/10_loss_landscape_log.png) |
 | **`plot_decision_boundary(X, Y)`** — sample markers sit in ink rather than the series hues, since over a diverging field a blue marker would land on its own colour and vanish. | **`plot_loss_landscape(X, Y, log=True)`** — the basin the optimiser settled in, on two filter-normalised random directions. |
-| ![Weight distribution](examples/plots/05_weight_distribution.png) | ![Weight heatmap](examples/plots/06_weights_hidden0.png) |
+| ![Weight distribution](https://raw.githubusercontent.com/snehashish090/GradieX/main/examples/plots/05_weight_distribution.png) | ![Weight heatmap](https://raw.githubusercontent.com/snehashish090/GradieX/main/examples/plots/06_weights_hidden0.png) |
 | **`plot_weight_distribution()`** — one histogram per layer. A layer collapsed at zero is dead; one spread far wider than its neighbours is about to diverge. | **`plot_weight_heatmap(0)`** — weights are signed, so the ramp is diverging and symmetric about zero. A sequential ramp would hide the sign. |
 
-![Summary dashboard](examples/plots/11_summary.png)
+![Summary dashboard](https://raw.githubusercontent.com/snehashish090/GradieX/main/examples/plots/11_summary.png)
 
 **`plot_summary(X, Y)`** — architecture, loss, weights and the data fit in one figure.
 Panels with nothing to draw are left out rather than shown empty.
@@ -703,7 +715,7 @@ identical by construction rather than by inspection.
 ./bench/run_bench.sh            # full matrix, CSV on stdout
 ```
 
-Raw output is in [`bench/results.csv`](bench/results.csv).
+Raw output is in [`bench/results.csv`](https://github.com/snehashish090/GradieX/blob/main/bench/results.csv).
 
 **Machine:** Apple M5, 10 cores, macOS; Apple clang 21.0.0, single-threaded.
 **Metric:** microseconds per sample — forward pass, backward pass and the weight
@@ -792,11 +804,11 @@ in the matrix and the CSV, but there is nothing to report from it.
 - **Adam / momentum** — plain SGD is the current ceiling on hard problems
 - **Per-layer widths and dropout rates**
 
-See [TODO.md](TODO.md) for measured performance work in priority order.
+See [TODO.md](https://github.com/snehashish090/GradieX/blob/main/TODO.md) for measured performance work in priority order.
 
 ## Contributing
 
-Contributions are welcome. See **[CONTRIBUTING.md](CONTRIBUTING.md)** for the build
+Contributions are welcome. See **[CONTRIBUTING.md](https://github.com/snehashish090/GradieX/blob/main/CONTRIBUTING.md)** for the build
 and test workflow, the code style, and — most importantly — the
 [invariants](#invariants) that must not be broken. Breaking one produces a library
 that trains plausibly and is silently wrong.
@@ -805,8 +817,11 @@ If you touch the gradient path, the gradient check is what decides whether you g
 right. If you touch the memory layout or the unrolled loop, the zero-allocation test
 and the bit-exactness test are what decide.
 
-By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md).
+Releases are cut by pushing a tag; **[RELEASING.md](https://github.com/snehashish090/GradieX/blob/main/RELEASING.md)**
+covers the trusted-publishing setup, the build matrix, and the pre-tag checklist.
+
+By participating you agree to the [Code of Conduct](https://github.com/snehashish090/GradieX/blob/main/CODE_OF_CONDUCT.md).
 
 ## License
 
-[MIT](LICENSE) &copy; 2026 Snehashish Laskar.
+[MIT](https://github.com/snehashish090/GradieX/blob/main/LICENSE) &copy; 2026 Snehashish Laskar.
