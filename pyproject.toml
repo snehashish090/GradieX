@@ -37,9 +37,13 @@ build-frontend = "build"
 manylinux-x86_64-image = "manylinux_2_28"
 manylinux-aarch64-image = "manylinux_2_28"
 
-# Prove each wheel actually trains before it is published, not just that it imports.
-test-requires = "numpy"
-test-command = 'python -c "import gradiex, numpy as np; gradiex.seed(42); n=gradiex.Network(learning_rate=0.5, batch_size=4); n.add_hidden(8, input_size=2, activation=\"tanh\", init=\"xavier\"); n.add_output(1, activation=\"sigmoid\", loss=\"mse\"); n.build(); X=np.array([[0,0],[0,1],[1,0],[1,1]], dtype=np.float32); Y=np.array([[0],[1],[1],[0]], dtype=np.float32); h=n.train(X,Y,epochs=2000,shuffle=True,seed=42); assert h[-1] < 0.01, h[-1]; print(\"XOR converged:\", h[0], \"->\", h[-1])"'
+# Prove each wheel actually trains before it is published, not just that it
+# imports -- and that the plotting layer renders, since matplotlib is a hard
+# dependency and a wheel whose plots raise is not a usable wheel. `canvas.draw()`
+# runs the full Agg render path without touching the filesystem, which also keeps
+# the check valid inside a sandbox.
+test-requires = ["numpy", "matplotlib"]
+test-command = 'python -c "import gradiex, numpy as np; gradiex.seed(42); n=gradiex.Network(learning_rate=0.5, batch_size=4); n.add_hidden(8, input_size=2, activation=\"tanh\", init=\"xavier\"); n.add_output(1, activation=\"sigmoid\", loss=\"mse\"); n.build(); X=np.array([[0,0],[0,1],[1,0],[1,1]], dtype=np.float32); Y=np.array([[0],[1],[1],[0]], dtype=np.float32); h=n.train(X,Y,epochs=2000,shuffle=True,seed=42); assert h[-1] < 0.01, h[-1]; gradiex.plot_loss(h, show=False).canvas.draw(); print(\"XOR converged:\", h[0], \"->\", h[-1])"'
 
 [tool.cibuildwheel.environment]
 MPLBACKEND = "Agg"
