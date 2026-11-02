@@ -19,6 +19,8 @@ jobs:
   wheels:
     name: wheels · ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -52,6 +54,8 @@ jobs:
   sdist:
     name: sdist
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
