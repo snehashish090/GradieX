@@ -98,7 +98,6 @@ The flag's contribution scales with layer width: nothing on `2→8×2→1`, 2.4�
 
 ### Known issues
 
-- `std::expf` is not a standard name; `std::exp` is.
 - Only `outputLayers[0]` back-propagates; extra output heads train silently wrong.
   The Python layer refuses to build them.
 - `Network` has a destructor but no copy constructor, so a copy double-frees.
