@@ -66,6 +66,7 @@ jobs:
         run: |
           python -m venv /tmp/check
           /tmp/check/bin/pip install --no-binary gradiex dist/*.tar.gz
+          cd /tmp
           MPLBACKEND=Agg /tmp/check/bin/python -c "import gradiex; print('sdist OK', gradiex.__version__)"
 
       - uses: actions/upload-artifact@v7
