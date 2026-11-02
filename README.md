@@ -700,8 +700,8 @@ Mini-batching, per-epoch shuffling and seeded initialisation **are** supported i
 v0.0.3. Vectorisation is requested through `#pragma omp simd` rather than written with
 intrinsics, so it is present only when the build enables OpenMP.
 
-Three defects remain open: `std::expf` is not a standard name; only
-`outputLayers[0]` back-propagates, so extra output heads train silently wrong (the
+Two defects remain open: only `outputLayers[0]` back-propagates, so extra output
+heads train silently wrong (the
 Python layer refuses to build them); and `Network` has a destructor but no copy
 constructor, so a copy double-frees.
 

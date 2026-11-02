@@ -90,7 +90,7 @@ namespace core::functions::activations
         */
         #pragma omp simd
         for (size_t i = 0; i < size; ++i)
-            vectorScratchPad[i] = 1.0f / (1.0f + std::expf(-input[i]));
+            vectorScratchPad[i] = 1.0f / (1.0f + std::exp(-input[i]));
         return vectorScratchPad;
     }
 
@@ -108,7 +108,7 @@ namespace core::functions::activations
         #pragma omp simd
         #pragma GCC unroll 4 // Tells compiler to unroll the loop iterations to maximize performance.
         for (size_t i = 0; i < size; ++i) {
-            float sigmoidValue = 1.0f / (1.0f + std::expf(-input[i]));
+            float sigmoidValue = 1.0f / (1.0f + std::exp(-input[i]));
             vectorScratchPad[i] = sigmoidValue * (1.0f - sigmoidValue);
         }
         return vectorScratchPad;
@@ -236,7 +236,7 @@ namespace core::functions::activations
         #pragma omp simd
         for (size_t i = 0; i < size; ++i) {
             float x = input[i];
-            vectorScratchPad[i] = x / (1.0f + std::expf(-x));  // x * sigmoid
+            vectorScratchPad[i] = x / (1.0f + std::exp(-x));  // x * sigmoid
         }
         return vectorScratchPad;
     }
@@ -255,7 +255,7 @@ namespace core::functions::activations
         #pragma omp simd
         for (size_t i = 0; i < size; ++i) {
             float x = input[i];
-            float s = 1.0f / (1.0f + std::expf(-x));  // sigmoid
+            float s = 1.0f / (1.0f + std::exp(-x));  // sigmoid
             // derivative = s + x * s * (1 - s)
             vectorScratchPad[i] = s + x * s * (1.0f - s);
         }
@@ -335,7 +335,7 @@ namespace core::functions::activations
             if (input[i] > maxVal) maxVal = input[i];
         float sum = 0.0f;
         for (size_t i = 0; i < size; ++i) {
-            float e = std::expf(input[i] - maxVal);
+            float e = std::exp(input[i] - maxVal);
             vectorScratchPad[i] = e;
             sum += e;
         }
