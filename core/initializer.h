@@ -58,10 +58,10 @@ namespace core::functions::initializers
     // Type alias for initialization functions that take a scratch pad and two size parameters 
     // and return a pointer to the initialized weights.
     template <typename T>
-    using initFunction = T* (*)(T* __restrict__ vectorScratchPad, size_t size, size_t size2);
+    using initFunction = T* (*)(T* __restrict vectorScratchPad, size_t size, size_t size2);
 
     template <typename T>
-    inline T* zeros(T* __restrict__ vectorScratchPad, size_t size, size_t size2) {
+    inline T* zeros(T* __restrict vectorScratchPad, size_t size, size_t size2) {
         /*
             Zeros out the given scratch pad.
             @param vectorScratchPad Pointer to the scratch pad to be initialized.
@@ -76,7 +76,7 @@ namespace core::functions::initializers
 
     // Xavier Initialization: W ~ N(0, sqrt(2 / (fan_in + fan_out)))
     template <typename T>
-    inline T* xavier(T* __restrict__ vectorScratchPad, 
+    inline T* xavier(T* __restrict vectorScratchPad, 
                      size_t fanIn, size_t fanOut) {
         /*
             Xavier initialization for the given scratch pad.
@@ -98,7 +98,7 @@ namespace core::functions::initializers
     }
 
     template <typename T>
-    inline T* he(T* __restrict__ vectorScratchPad,
+    inline T* he(T* __restrict vectorScratchPad,
                  size_t fanIn, size_t fanOut) {
         /*
             He initialization for the given scratch pad.  W ~ N(0, sqrt(2 / fan_in))

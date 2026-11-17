@@ -246,7 +246,7 @@ namespace core
              *  The inputs are passed through pointers so we need the inputs to survive the stack during the whole process.
              *  Each layer converts the incoming activations into its own dtype at the boundary.
              */
-            const void* __restrict__ currentInput = inputs;
+            const void* __restrict currentInput = inputs;
             DType currentDtype = ioDType;
             // Just sequationally call the calculateOutputs function for each layer
             // We cannot parallelize this easily because each layer depends on the output of the previous layer.
@@ -369,7 +369,7 @@ namespace core
             return totalLoss;
         }
 
-        IO trainBatch(const size_t* __restrict__ sampleOrder, size_t startSample, int batchSize,
+        IO trainBatch(const size_t* __restrict sampleOrder, size_t startSample, int batchSize,
                       std::vector<std::vector<IO>>& inputs,
                       std::vector<std::vector<IO>>& targetOutputs)
         {
@@ -421,7 +421,7 @@ namespace core
 
         void train(std::vector<std::vector<IO>>& inputs,
                    std::vector<std::vector<IO>>& targetOutputs,
-                   int numEpochs, IO* __restrict__ lossBuffer, int bufferSize,
+                   int numEpochs, IO* __restrict lossBuffer, int bufferSize,
                    bool verbose = false, bool shuffle = false,
                    std::optional<unsigned> seed = std::nullopt, int logEvery = 1)
         {
@@ -463,7 +463,7 @@ namespace core
             std::vector<size_t> sampleOrder(numSamples);
             std::iota(sampleOrder.begin(), sampleOrder.end(), size_t{0});
             std::mt19937 rng(seed.has_value() ? *seed : std::random_device{}());
-            const size_t* __restrict__ order = sampleOrder.data();
+            const size_t* __restrict order = sampleOrder.data();
 
             // Loop over each epoch and train the network on all batches of samples.
             for (int epoch = 0; epoch < numEpochs; epoch++)

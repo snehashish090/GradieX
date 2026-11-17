@@ -134,15 +134,15 @@ namespace core
             Layer class represents a single layer in a neural network.
 
             Code Design : 
-                - pointers to vector data come in <type>* __restrict__ for better performance and to enable compiler optimizations.
-                - When writing to vector data in for loops, we establish __restrict__ pointer first 
+                - pointers to vector data come in <type>* __restrict for better performance and to enable compiler optimizations.
+                - When writing to vector data in for loops, we establish __restrict pointer first 
                     eg : vector[i] = data WRONG DO NOT DO THIS 
                     
                     Correct way:
-                    T* __restrict__ vec = vector.data();
+                    T* __restrict vec = vector.data();
                     vec[i] = data;
 
-                    Why?  Using __restrict__ informs the compiler that the pointer is the only reference to that memory. 
+                    Why?  Using __restrict informs the compiler that the pointer is the only reference to that memory. 
         */
         // Class Members
         public:
@@ -241,8 +241,8 @@ namespace core
              * @param layerWidth The width of the layer
              */
             
-            T* __restrict__ neuronWeights = this->neuronWeights.data();
-            T* __restrict__ neuronBiases = this->neuronBiases.data();
+            T* __restrict neuronWeights = this->neuronWeights.data();
+            T* __restrict neuronBiases = this->neuronBiases.data();
 
             // Initialize the weights and biases using the provided initialiser
             this->initialiser(
@@ -269,11 +269,11 @@ namespace core
              * @return void
              */
 
-            T* __restrict__ layerInputs = this->layerInputs.data();
-            T* __restrict__ neuronOutputsUnactivated = this->neuronOutputsUnactivated.data();
-            T* __restrict__ neuronOutputsActivated = this->neuronOutputsActivated.data();
-            const T* __restrict__ neuronWeights = this->neuronWeights.data();
-            const T* __restrict__ neuronBiases = this->neuronBiases.data();
+            T* __restrict layerInputs = this->layerInputs.data();
+            T* __restrict neuronOutputsUnactivated = this->neuronOutputsUnactivated.data();
+            T* __restrict neuronOutputsActivated = this->neuronOutputsActivated.data();
+            const T* __restrict neuronWeights = this->neuronWeights.data();
+            const T* __restrict neuronBiases = this->neuronBiases.data();
 
             const int width     = this->layerWidth; // Load ahead of time
             const int inputSize = this->inputSize;
@@ -282,7 +282,7 @@ namespace core
             // them into this layer's dtype when the previous layer differs.
             if (inputDtype == dtype_of<T>::value)
             {
-                const T* __restrict__ src = static_cast<const T*>(input);
+                const T* __restrict src = static_cast<const T*>(input);
                 #pragma omp simd
                 for (int inputIdx = 0; inputIdx < inputSize; ++inputIdx)
                     layerInputs[inputIdx] = src[inputIdx];
@@ -295,7 +295,7 @@ namespace core
             
             for (int neuron = 0; neuron < width; ++neuron)
             {
-                const T* __restrict__ w = neuronWeights + neuron * inputSize;
+                const T* __restrict w = neuronWeights + neuron * inputSize;
                 T sum = static_cast<T>(0);
                 // Vectorise the dot product computation using OpenMP SIMD directive
                 #pragma omp simd reduction(+:sum)
@@ -324,8 +324,8 @@ namespace core
              * This is typically done at the beginning of a training step to ensure that gradients from previous steps do not accumulate.
              */
             // Set our local pointers to the vectors for easier access and potential SIMD optimization.
-            T* __restrict__ neuronWeightGradients = this->neuronWeightGradients.data();
-            T* __restrict__ neuronBiasGradients   = this->neuronBiasGradients.data();
+            T* __restrict neuronWeightGradients = this->neuronWeightGradients.data();
+            T* __restrict neuronBiasGradients   = this->neuronBiasGradients.data();
             const int totalWeights = this->layerWidth * this->inputSize;
             const int width        = this->layerWidth;
             // I think its pretty simple, just set all gradients & biases to zero.
@@ -348,8 +348,8 @@ namespace core
              * Why would we want to scale gradients? 
              * This is typically done to adjust the learning rate dynamically or to implement gradient clipping.
              */
-            T* __restrict__ neuronWeightGradients = this->neuronWeightGradients.data();
-            T* __restrict__ neuronBiasGradients   = this->neuronBiasGradients.data();
+            T* __restrict neuronWeightGradients = this->neuronWeightGradients.data();
+            T* __restrict neuronBiasGradients   = this->neuronBiasGradients.data();
             const int totalWeights = this->layerWidth * this->inputSize;
             const int width        = this->layerWidth;
             const T scaleT = static_cast<T>(scale);
@@ -375,10 +375,10 @@ namespace core
              * This function does not take any parameters as it operates on the internal state of the layer.
              */
             // Set vector pointers 
-            const T* __restrict__ savedInputs = this->layerInputs.data();
-            const T* __restrict__ neuronDeltas = this->neuronDeltas.data();
-            T* __restrict__ neuronWeightGradients = this->neuronWeightGradients.data();
-            T* __restrict__ neuronBiasGradients   = this->neuronBiasGradients.data();
+            const T* __restrict savedInputs = this->layerInputs.data();
+            const T* __restrict neuronDeltas = this->neuronDeltas.data();
+            T* __restrict neuronWeightGradients = this->neuronWeightGradients.data();
+            T* __restrict neuronBiasGradients   = this->neuronBiasGradients.data();
             const int width = this->layerWidth;
             const int inputSize = this->inputSize;
 
@@ -391,7 +391,7 @@ namespace core
             for (int neuron = 0; neuron < width; ++neuron)
             {
                 const T delta = neuronDeltas[neuron];
-                T* __restrict__ dW = neuronWeightGradients + neuron * inputSize;
+                T* __restrict dW = neuronWeightGradients + neuron * inputSize;
 
                 #pragma omp simd
                 for (int inputIdx = 0; inputIdx < inputSize; ++inputIdx)
@@ -409,10 +409,10 @@ namespace core
              * @return void
              * This function updates the internal weights and biases of the layer based on the previously computed gradients.
              */
-            const T* __restrict__ neuronWeightGradients = this->neuronWeightGradients.data();
-            const T* __restrict__ neuronBiasGradients   = this->neuronBiasGradients.data();
-            T* __restrict__ neuronWeights = this->neuronWeights.data();
-            T* __restrict__ neuronBiases  = this->neuronBiases.data();
+            const T* __restrict neuronWeightGradients = this->neuronWeightGradients.data();
+            const T* __restrict neuronBiasGradients   = this->neuronBiasGradients.data();
+            T* __restrict neuronWeights = this->neuronWeights.data();
+            T* __restrict neuronBiases  = this->neuronBiases.data();
             const int width = this->layerWidth;
             const int inputSize = this->inputSize;
             const T lr = static_cast<T>(learningRate);
@@ -532,7 +532,7 @@ namespace core
                 this->targetScratch_.resize(static_cast<size_t>(width));
                 convertFrom(target, targetDtype, this->targetScratch_.data(), static_cast<size_t>(width));
 
-                T* __restrict__ neuronDeltas = this->neuronDeltas.data();
+                T* __restrict neuronDeltas = this->neuronDeltas.data();
                 // Compute the derivative of the loss function with respect to the activated outputs.
                 T* lossDerivative = this->lossFunctionDerivative(
                     this->targetScratch_.data(),
@@ -629,7 +629,7 @@ namespace core
             convertFrom(nextLayerDeltas, nextDtype, this->nextDeltaScratch_.data(), static_cast<size_t>(nextLayerWidth));
             convertFrom(nextLayerWeights, nextDtype, this->nextWeightScratch_.data(), nextWeightCount);
 
-            T* __restrict__ neuronDeltas = this->neuronDeltas.data();
+            T* __restrict neuronDeltas = this->neuronDeltas.data();
 
             // 1. Compute derivatives for the whole layer in one go.
             T* activationDerivedInputs = this->activationFunctionDerivative(
@@ -647,7 +647,7 @@ namespace core
             {
                 // Get the delta from the l+1 (next) layer
                 const T nextDelta = this->nextDeltaScratch_[static_cast<size_t>(nextNeuron)];
-                const T* __restrict__ nextWeightRow = this->nextWeightScratch_.data() + static_cast<size_t>(nextNeuron) * static_cast<size_t>(width);
+                const T* __restrict nextWeightRow = this->nextWeightScratch_.data() + static_cast<size_t>(nextNeuron) * static_cast<size_t>(width);
                 #pragma omp simd
                 // Propagate the error from the next layer to the current layer.
                 for (int neuron = 0; neuron < width; ++neuron)

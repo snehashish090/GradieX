@@ -95,7 +95,7 @@ namespace core
     // Copies n scalars from one type into another. The usual float32 -> float32
     // case is just a copy; everything else is a widening/narrowing convert.
     template <typename From, typename To>
-    inline void convert(const From* __restrict__ src, To* __restrict__ dst, size_t n)
+    inline void convert(const From* __restrict src, To* __restrict dst, size_t n)
     {
         #pragma omp simd
         for (size_t i = 0; i < n; ++i)

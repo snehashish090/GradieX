@@ -98,7 +98,7 @@ and the loop runs at 5.6 of ~25 available GFLOP/s.
 
 ```cpp
 double sum = 0.0;
-const double* __restrict__ row = this->neuronWeights.data() + neuron * this->inputSize;
+const double* __restrict row = this->neuronWeights.data() + neuron * this->inputSize;
 {
     #pragma clang fp reassociate(on)
     for (int i = 0; i < this->inputSize; ++i) sum += row[i] * input[i];

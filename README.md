@@ -206,7 +206,7 @@ asks the compiler instead:
 ```cpp
 for (int neuron = 0; neuron < width; ++neuron)
 {
-    const T* __restrict__ w = neuronWeights + neuron * inputSize;
+    const T* __restrict w = neuronWeights + neuron * inputSize;
     T sum = static_cast<T>(0);
     #pragma omp simd reduction(+:sum)
     for (int inputIdx = 0; inputIdx < inputSize; ++inputIdx)
@@ -216,7 +216,7 @@ for (int neuron = 0; neuron < width; ++neuron)
 ```
 
 The same directive covers zeroing, scaling and applying gradients, the boundary
-conversions, and every activation and loss. `__restrict__` pointers are established
+conversions, and every activation and loss. `__restrict` pointers are established
 before each loop so the compiler knows the buffers do not alias.
 
 > **This only does something if OpenMP is enabled.** Built without

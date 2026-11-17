@@ -50,16 +50,16 @@ namespace core::functions::loss {
 
     // Function pointer aliases so layers can store loss implementations directly.
     template <typename T>
-    using LossFunction = T (*) (const T* __restrict__ actual,
-        const T* __restrict__ predicted, size_t size);
+    using LossFunction = T (*) (const T* __restrict actual,
+        const T* __restrict predicted, size_t size);
     template <typename T>
-    using LossFunctionDerivative = T* (*) (const T* __restrict__ actual,
-        const T* __restrict__ predicted,
-        T* __restrict__ vectorScratchPad, size_t size);
+    using LossFunctionDerivative = T* (*) (const T* __restrict actual,
+        const T* __restrict predicted,
+        T* __restrict vectorScratchPad, size_t size);
 
     template <typename T>
-    inline T mse(const T* __restrict__ actual,
-                 const T* __restrict__ predicted, size_t size) {
+    inline T mse(const T* __restrict actual,
+                 const T* __restrict predicted, size_t size) {
         /**
             @param actual contains a vector of the ground truth values.
             @param predicted contains a vector of the predicted values.
@@ -76,9 +76,9 @@ namespace core::functions::loss {
         return sum / static_cast<T>(size);
     }
     template <typename T>
-    inline T* mseDerivative(const T* __restrict__ actual,
-                            const T* __restrict__ predicted,
-                            T* __restrict__ vectorScratchPad, size_t size) {
+    inline T* mseDerivative(const T* __restrict actual,
+                            const T* __restrict predicted,
+                            T* __restrict vectorScratchPad, size_t size) {
         /***
             @param actual contains a vector of the ground truth values.
             @param predicted contains a vector of the predicted values.
@@ -94,8 +94,8 @@ namespace core::functions::loss {
     }
 
     template <typename T>
-    inline T mae(const T* __restrict__ actual,
-                 const T* __restrict__ predicted, size_t size) {
+    inline T mae(const T* __restrict actual,
+                 const T* __restrict predicted, size_t size) {
         /**
             @param actual contains a vector of the ground truth values.
             @param predicted contains a vector of the predicted values.
@@ -110,9 +110,9 @@ namespace core::functions::loss {
         return sum / static_cast<T>(size);
     }
     template <typename T>
-    inline T* maeDerivative(const T* __restrict__ actual,
-                            const T* __restrict__ predicted,
-                            T* __restrict__ vectorScratchPad, size_t size) {
+    inline T* maeDerivative(const T* __restrict actual,
+                            const T* __restrict predicted,
+                            T* __restrict vectorScratchPad, size_t size) {
         /**
             @param actual contains a vector of the ground truth values.
             @param predicted contains a vector of the predicted values.
@@ -131,8 +131,8 @@ namespace core::functions::loss {
     }
 
     template <typename T>
-    inline T huber(const T* __restrict__ actual,
-                   const T* __restrict__ predicted, size_t size) {
+    inline T huber(const T* __restrict actual,
+                   const T* __restrict predicted, size_t size) {
         /**
             @param actual contains a vector of the ground truth values.
             @param predicted contains a vector of the predicted values.
@@ -151,9 +151,9 @@ namespace core::functions::loss {
         return sum / static_cast<T>(size);
     }
     template <typename T>
-    inline T* huberDerivative(const T* __restrict__ actual,
-                              const T* __restrict__ predicted,
-                              T* __restrict__ vectorScratchPad, size_t size) {
+    inline T* huberDerivative(const T* __restrict actual,
+                              const T* __restrict predicted,
+                              T* __restrict vectorScratchPad, size_t size) {
         /**
             @param actual contains a vector of the ground truth values.
             @param predicted contains a vector of the predicted values.
@@ -174,8 +174,8 @@ namespace core::functions::loss {
 
 
     template <typename T>
-    inline T binaryCrossEntropy(const T* __restrict__ actual,
-                                const T* __restrict__ predicted, size_t size) {
+    inline T binaryCrossEntropy(const T* __restrict actual,
+                                const T* __restrict predicted, size_t size) {
         /**
             @param actual contains binary labels in [0, 1].
             @param predicted contains predicted probabilities in [0, 1].
@@ -193,9 +193,9 @@ namespace core::functions::loss {
         return -sum / static_cast<T>(size);
     }
     template <typename T>
-    inline T* binaryCrossEntropyDerivative(const T* __restrict__ actual,
-                                           const T* __restrict__ predicted,
-                                           T* __restrict__ vectorScratchPad, size_t size) {
+    inline T* binaryCrossEntropyDerivative(const T* __restrict actual,
+                                           const T* __restrict predicted,
+                                           T* __restrict vectorScratchPad, size_t size) {
         /**
             @param actual contains binary labels in [0, 1].
             @param predicted contains predicted probabilities in [0, 1].
@@ -214,8 +214,8 @@ namespace core::functions::loss {
     }
 
     template <typename T>
-    inline T crossEntropy(const T* __restrict__ actual,
-                          const T* __restrict__ predicted, size_t size) {
+    inline T crossEntropy(const T* __restrict actual,
+                          const T* __restrict predicted, size_t size) {
         /**
             @param actual contains class targets (typically one-hot or soft labels).
             @param predicted contains class probabilities.
@@ -231,9 +231,9 @@ namespace core::functions::loss {
         return -sum;
     }
     template <typename T>
-    inline T* crossEntropyDerivative(const T* __restrict__ actual,
-                                     const T* __restrict__ predicted,
-                                     T* __restrict__ vectorScratchPad, size_t size) {
+    inline T* crossEntropyDerivative(const T* __restrict actual,
+                                     const T* __restrict predicted,
+                                     T* __restrict vectorScratchPad, size_t size) {
         /**
             @param actual contains class targets (typically one-hot or soft labels).
             @param predicted contains class probabilities.
@@ -250,8 +250,8 @@ namespace core::functions::loss {
     }
 
     template <typename T>
-    inline T softmaxCrossEntropy(const T* __restrict__ actual,
-                                 const T* __restrict__ predicted, size_t size) {
+    inline T softmaxCrossEntropy(const T* __restrict actual,
+                                 const T* __restrict predicted, size_t size) {
         /**
             @param actual contains class targets (typically one-hot or soft labels).
             @param predicted contains logits (not probabilities).
@@ -283,9 +283,9 @@ namespace core::functions::loss {
     }
 
     template <typename T>
-    inline T* softmaxCrossEntropyDerivative(const T* __restrict__ actual,
-                                            const T* __restrict__ predicted,
-                                            T* __restrict__ vectorScratchPad, size_t size) {
+    inline T* softmaxCrossEntropyDerivative(const T* __restrict actual,
+                                            const T* __restrict predicted,
+                                            T* __restrict vectorScratchPad, size_t size) {
         /**
             @param actual contains class targets (typically one-hot or soft labels).
             @param predicted contains logits (not probabilities).

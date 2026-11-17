@@ -29,17 +29,17 @@
 */
 namespace core::functions::activations 
 {
-    //We use T*__restrict__ to point to a vector input
-    // Why? Using __restrict__ tells the compiler that the pointer is the only reference to that memory,
+    //We use T*__restrict to point to a vector input
+    // Why? Using __restrict tells the compiler that the pointer is the only reference to that memory,
     // which helps with optimization and vectorization.
 
     // Custom Data Type alias for function pointers
     template <typename T>
-    using ActivationFunction = T*__restrict__ (*)(const T*__restrict__ input, 
-        T* __restrict__ vectorScratchPad, size_t size);
+    using ActivationFunction = T*__restrict (*)(const T*__restrict input, 
+        T* __restrict vectorScratchPad, size_t size);
     template <typename T>
-    using ActivationFunctionDerivative = T*__restrict__ (*)(const T*__restrict__ input, 
-        T* __restrict__ vectorScratchPad, size_t size);
+    using ActivationFunctionDerivative = T*__restrict (*)(const T*__restrict input, 
+        T* __restrict vectorScratchPad, size_t size);
 
     // The following function accepts a pointer to a scratchPad vector which is a 
     // singular vector created once and reused for efficiency.
@@ -47,8 +47,8 @@ namespace core::functions::activations
     // reducing the need for repeated allocations.
     
     template <typename T>
-    inline T*__restrict__ identity(const T*__restrict__ input, 
-        T* __restrict__ vectorScratchPad, size_t size) {
+    inline T*__restrict identity(const T*__restrict input, 
+        T* __restrict vectorScratchPad, size_t size) {
         /*
             Identity activation function simply returns the input as output.
             No transformation is applied.
@@ -65,8 +65,8 @@ namespace core::functions::activations
     }
 
     template <typename T>
-    inline T*__restrict__ identityDerivative(const T*__restrict__ /*input*/, 
-        T* __restrict__ vectorScratchPad, size_t size) {
+    inline T*__restrict identityDerivative(const T*__restrict /*input*/, 
+        T* __restrict vectorScratchPad, size_t size) {
         /*
             Identity activation function derivative returns 1 for all input elements.
 
@@ -84,8 +84,8 @@ namespace core::functions::activations
     
     // Sigmoid activation function - maps input values to the range (0, 1)
     template <typename T>
-    inline T*__restrict__ sigmoid(const T*__restrict__ input, 
-        T* __restrict__ vectorScratchPad, size_t size) {
+    inline T*__restrict sigmoid(const T*__restrict input, 
+        T* __restrict vectorScratchPad, size_t size) {
         /*
             Sigmoid activation function maps input values to the range (0, 1).
             It is defined as 1 / (1 + exp(-x)).
@@ -102,8 +102,8 @@ namespace core::functions::activations
     }
 
     template <typename T>
-    inline T*__restrict__ sigmoidDerivative(const T*__restrict__ input, 
-        T* __restrict__ vectorScratchPad, size_t size) {
+    inline T*__restrict sigmoidDerivative(const T*__restrict input, 
+        T* __restrict vectorScratchPad, size_t size) {
         /*
             Sigmoid activation function derivative computes the derivative of the sigmoid function for each input element.
             The derivative is given by sigmoid(x) * (1 - sigmoid(x)).
@@ -124,8 +124,8 @@ namespace core::functions::activations
 
     // Fastest activation. Zero for negatives, linear for positives.
     template <typename T>
-    inline T* __restrict__ relu(const T* __restrict__ input, 
-        T* __restrict__ vectorScratchPad, size_t size) {
+    inline T* __restrict relu(const T* __restrict input, 
+        T* __restrict vectorScratchPad, size_t size) {
         /*
             ReLU activation function sets all negative input values to zero and keeps positive values unchanged.
 
@@ -141,8 +141,8 @@ namespace core::functions::activations
     }
 
     template <typename T>
-    inline T* __restrict__ reluDerivative(const T* __restrict__ input, 
-        T* __restrict__ vectorScratchPad, size_t size) {
+    inline T* __restrict reluDerivative(const T* __restrict input, 
+        T* __restrict vectorScratchPad, size_t size) {
         /*
             ReLU activation function derivative returns 1 for positive input elements and 0 for non-positive elements.
 
@@ -159,8 +159,8 @@ namespace core::functions::activations
 
     // Leaky ReLU activation function - allows a small, non-zero gradient when the input is negative
     template <typename T>
-    inline T* __restrict__ leakyRelu(const T* __restrict__ input, 
-        T* __restrict__ vectorScratchPad, size_t size) {
+    inline T* __restrict leakyRelu(const T* __restrict input, 
+        T* __restrict vectorScratchPad, size_t size) {
         /*
             Leaky ReLU activation function sets all negative input values to a small 
             fraction of the input value (0.01 * input) and keeps positive values unchanged.
@@ -177,8 +177,8 @@ namespace core::functions::activations
     }
 
     template <typename T>
-    inline T* __restrict__ leakyReluDerivative(const T* __restrict__ input, 
-        T* __restrict__ vectorScratchPad, size_t size) {
+    inline T* __restrict leakyReluDerivative(const T* __restrict input, 
+        T* __restrict vectorScratchPad, size_t size) {
         /*
             Leaky ReLU activation function derivative computes the derivative of the Leaky ReLU function for each input element.
             The derivative is 1 for positive input values and 0.01 for negative input values.
@@ -197,8 +197,8 @@ namespace core::functions::activations
     // The TanH function - Hyperbolic tangent activation function
     // Note: used most commonly for traditional RNNs and LSTMs
     template <typename T>
-    inline T* __restrict__ tanh(const T* __restrict__ input, 
-        T* __restrict__ vectorScratchPad, size_t size) {
+    inline T* __restrict tanh(const T* __restrict input, 
+        T* __restrict vectorScratchPad, size_t size) {
         /*
             Hyperbolic tangent (TanH) activation function maps input values to the range [-1, 1].
             It is commonly used in traditional RNNs and LSTMs.
@@ -215,8 +215,8 @@ namespace core::functions::activations
     }
 
     template <typename T>
-    inline T* __restrict__ tanhDerivative(const T* __restrict__ input, 
-        T* __restrict__ vectorScratchPad, size_t size) {
+    inline T* __restrict tanhDerivative(const T* __restrict input, 
+        T* __restrict vectorScratchPad, size_t size) {
         /*
             Hyperbolic tangent (TanH) activation function derivative computes the derivative of the TanH function for each input element.
             The derivative is 1 - tanh^2(input).
@@ -236,8 +236,8 @@ namespace core::functions::activations
 
     // x * sigmoid(x). Smooth, non-monotonic. Used in deep vision & some NLP.
     template <typename T>
-    inline T* __restrict__ swish(const T* __restrict__ input, 
-        T* __restrict__ vectorScratchPad, size_t size) {
+    inline T* __restrict swish(const T* __restrict input, 
+        T* __restrict vectorScratchPad, size_t size) {
         /*
             Swish activation function maps input values to x * sigmoid(x).
             It is smooth and non-monotonic, often used in deep vision and some NLP models.
@@ -256,8 +256,8 @@ namespace core::functions::activations
     }
 
     template <typename T>
-    inline T* __restrict__ swishDerivative(const T* __restrict__ input, 
-        T* __restrict__ vectorScratchPad, size_t size) {
+    inline T* __restrict swishDerivative(const T* __restrict input, 
+        T* __restrict vectorScratchPad, size_t size) {
         /*
             Swish activation function derivative computes the derivative of the Swish function for each input element.
             The derivative is s + x * s * (1 - s), where s = sigmoid(x).
@@ -279,8 +279,8 @@ namespace core::functions::activations
 
     // Fast approximation: 0.5 * x * (1 + tanh( sqrt(2/pi) * (x + 0.0f44715 * x^3) ))
     template <typename T>
-    inline T* __restrict__ gelu(const T* __restrict__ input, 
-        T* __restrict__ vectorScratchPad, size_t size) {
+    inline T* __restrict gelu(const T* __restrict input, 
+        T* __restrict vectorScratchPad, size_t size) {
 
         /*
             Fast approximation of the GELU (Gaussian Error Linear Unit) activation function.
@@ -305,8 +305,8 @@ namespace core::functions::activations
     }
 
     template <typename T>
-    inline T* __restrict__ geluDerivative(const T* __restrict__ input, 
-        T* __restrict__ vectorScratchPad, size_t size) {
+    inline T* __restrict geluDerivative(const T* __restrict input, 
+        T* __restrict vectorScratchPad, size_t size) {
         /*
             Fast approximation of the derivative of the GELU (Gaussian Error Linear Unit) activation function.
             The derivative is computed based on the approximation: 0.5 * x * (1 + tanh( sqrt(2/pi) * (x + 0.044715 * x^3) )).
@@ -336,7 +336,7 @@ namespace core::functions::activations
     // Btw, Use this in combination with cross-entropy loss for classification tasks.
     // The derivative is a jacobian matrix, but when combined with cross-entropy loss, it simplifies nicely.
     template <typename T>
-    inline T* __restrict__ softmax(const T* __restrict__ input, 
+    inline T* __restrict softmax(const T* __restrict input, 
         /**
             Softmax activation function computes the normalized exponential of each input element.
             It is commonly used in the output layer of classification models to produce probability distributions.
@@ -346,7 +346,7 @@ namespace core::functions::activations
             @param size Number of elements in the input vector.
             @return Pointer to the output vector stored in the scratch pad.
         */
-        T* __restrict__ vectorScratchPad, size_t size) {
+        T* __restrict vectorScratchPad, size_t size) {
         // Find max for numerical stability (prevents exp overflow)
         T maxVal = input[0];
         for (size_t i = 1; i < size; ++i)
