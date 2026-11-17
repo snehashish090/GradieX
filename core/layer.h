@@ -46,6 +46,7 @@
 #include <functional>
 #include <stdexcept>
 #include <string>
+#include "compiler.h"
 #include "dtype.h"
 #include "activations.h"
 #include "initializer.h"

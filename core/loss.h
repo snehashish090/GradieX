@@ -14,6 +14,7 @@
 */
 
 #pragma once
+#include "compiler.h"
 #include <functional>
 #include <cmath>
 #include <algorithm>

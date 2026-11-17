@@ -38,6 +38,7 @@
 #include <cstdint>
 #include <stdexcept>
 #include <string>
+#include "compiler.h"
 
 namespace core
 {

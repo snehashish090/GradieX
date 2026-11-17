@@ -16,6 +16,7 @@
 #include <functional>
 #include <cstddef>
 #include <cmath>
+#include "compiler.h"
 
 /*
     Throughout this code, we use #pragma omp simd to instruct the compiler to vectorize the loops for better performance.

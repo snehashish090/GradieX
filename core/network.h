@@ -30,6 +30,7 @@
     The math behind this architecture is included under math.tex and math.pdf
 */
 #pragma once
+#include "compiler.h"
 #include "layer.h"
 #include <stdexcept>
 #include <string>

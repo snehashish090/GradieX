@@ -17,6 +17,7 @@
 */
 
 #pragma once
+#include "compiler.h"
 #include <iostream>
 #include <ostream>
 #include <random>
