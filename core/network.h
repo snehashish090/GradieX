@@ -46,6 +46,8 @@ namespace core
     {
         // Network configuration and layers management
         public:
+        using Scalar = IO; // the type crossing the network boundary
+
         int numHiddenLayers;
         int numOutputLayers = 1; // Assumes 1 output layer minimum
         float learningRate = 0.01f;

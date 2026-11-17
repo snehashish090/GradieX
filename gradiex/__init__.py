@@ -8,7 +8,8 @@ touches Python: :meth:`Network.train` hands the whole dataset to
     import gradiex
 
     gradiex.seed(42)                       # reproducible weight init
-    net = gradiex.Network(learning_rate=0.5, batch_size=4)
+    net = gradiex.Network(learning_rate=0.5, batch_size=4,
+                          dtype="float64") # IO dtype; layers pick their own
     net.add_hidden(8, input_size=2, activation="tanh", init="xavier",
                    dtype="float64")        # this hidden layer computes in double
     net.add_output(1, activation="sigmoid", loss="mse")

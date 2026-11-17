@@ -1128,6 +1128,47 @@ TEST(LayerBase_FloatBridgeRoundTripsADoubleLayer)
     ASSERT_NEAR_AT(1, layer.neuronBiases[1], -0.5, kExact);
 }
 
+TEST(LayerBase_DoubleBridgeRoundTripsADoubleLayer)
+{
+    // The double accessors exist so a float64-IO network can exchange weights
+    // without rounding through float.
+    core::Layer<double> layer(2, 2, core::DType::float64,
+                              act::relu<double>, init::zeros<double>, loss::mse<double>);
+    layer.neuronWeights = {0.5, -0.25, 1.5, 2.0};
+
+    double out[4] = {0.0, 0.0, 0.0, 0.0};
+    layer.copyWeightsTo(out);
+    for (int i = 0; i < 4; ++i)
+        ASSERT_NEAR_AT(i, out[i], layer.neuronWeights[i], kExact);
+
+    const double in[4] = {1.0, 2.0, 3.0, 4.0};
+    layer.copyWeightsFrom(in);
+    for (int i = 0; i < 4; ++i)
+        ASSERT_NEAR_AT(i, layer.neuronWeights[i], in[i], kExact);
+
+    const double biases[2] = {0.25, -0.5};
+    layer.copyBiasesFrom(biases);
+    ASSERT_NEAR_AT(0, layer.neuronBiases[0], 0.25, kExact);
+    ASSERT_NEAR_AT(1, layer.neuronBiases[1], -0.5, kExact);
+}
+
+TEST(LayerBase_DoubleBridgeConvertsAcrossDtypes)
+{
+    // A double accessor into a FLOAT layer converts on the way, in both
+    // directions, so a float64-IO network can drive float32 layers directly.
+    core::Layer<float> layer(2, 2, core::DType::float32,
+                             act::relu<float>, init::zeros<float>, loss::mse<float>);
+    const double in[4] = {0.5, -0.25, 1.5, 2.0};
+    layer.copyWeightsFrom(in);
+    ASSERT_NEAR_AT(0, layer.neuronWeights[0], 0.5, kExact);
+    ASSERT_NEAR_AT(1, layer.neuronWeights[1], -0.25, kExact);
+
+    double out[4] = {0.0, 0.0, 0.0, 0.0};
+    layer.copyWeightsTo(out);
+    for (int i = 0; i < 4; ++i)
+        ASSERT_NEAR_AT(i, out[i], static_cast<double>(in[i]), kExact);
+}
+
 // ---------------------------------------------------------------------------
 
 int main(int argc, char** argv)

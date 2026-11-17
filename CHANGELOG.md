@@ -24,7 +24,11 @@ Templated scalars and per-layer data types.
   network. Same-dtype networks keep the zero-allocation hot path.
 - **Python `dtype` argument.** `add_hidden()` / `add_output()` accept
   `dtype="float32"` or `dtype="float64"`; `gradiex.dtypes()` lists the choices and
-  `layer_specs()` reports each layer's dtype. The network IO stays float32.
+  `layer_specs()` reports each layer's dtype. `Network(dtype=...)` additionally
+  selects the network's own IO dtype: inputs, targets, predictions,
+  `weights()`/`biases()` and the loss history are all numpy arrays in that dtype,
+  reported by `net.dtype` — a float64-IO network with float32 layers, or the
+  reverse, both work.
 - **Type-erased `LayerBase`** with float32 copy accessors (`copyWeightsTo/From`,
   `copyBiasesTo/From`, `copyActivatedOutputsTo`) for the Python bindings and tools.
 - **Derivative validation in `Network::addHiddenLayer` / `addOutputLayer`**:

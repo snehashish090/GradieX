@@ -103,14 +103,21 @@ namespace core
         virtual const void* deltas() const = 0;
         virtual const void* weights() const = 0;
 
-        // float32 copies of the parameter buffers. This is the bridge the Python
-        // bindings (and tools) use to move weights/biases across the boundary;
-        // values are converted between float and the layer's T as needed.
+        // float32 / float64 copies of the parameter buffers. This is the bridge
+        // the Python bindings (and tools) use to move weights/biases across the
+        // boundary; values are converted between the requested type and the
+        // layer's T as needed. A float64 Network reads float64 arrays here even
+        // though the layers themselves may compute in float32.
         virtual void copyWeightsFrom(const float* src) = 0;
+        virtual void copyWeightsFrom(const double* src) = 0;
         virtual void copyWeightsTo(float* dst) const = 0;
+        virtual void copyWeightsTo(double* dst) const = 0;
         virtual void copyBiasesFrom(const float* src) = 0;
+        virtual void copyBiasesFrom(const double* src) = 0;
         virtual void copyBiasesTo(float* dst) const = 0;
+        virtual void copyBiasesTo(double* dst) const = 0;
         virtual void copyActivatedOutputsTo(float* dst) const = 0;
+        virtual void copyActivatedOutputsTo(double* dst) const = 0;
     };
 
     // ---------------------------------------------------------------------------
@@ -444,7 +451,19 @@ namespace core
                     static_cast<size_t>(this->layerWidth) * static_cast<size_t>(this->inputSize));
         }
 
+        void copyWeightsFrom(const double* src) override
+        {
+            convert(src, this->neuronWeights.data(),
+                    static_cast<size_t>(this->layerWidth) * static_cast<size_t>(this->inputSize));
+        }
+
         void copyWeightsTo(float* dst) const override
+        {
+            convert(this->neuronWeights.data(), dst,
+                    static_cast<size_t>(this->layerWidth) * static_cast<size_t>(this->inputSize));
+        }
+
+        void copyWeightsTo(double* dst) const override
         {
             convert(this->neuronWeights.data(), dst,
                     static_cast<size_t>(this->layerWidth) * static_cast<size_t>(this->inputSize));
@@ -455,12 +474,27 @@ namespace core
             convert(src, this->neuronBiases.data(), static_cast<size_t>(this->layerWidth));
         }
 
+        void copyBiasesFrom(const double* src) override
+        {
+            convert(src, this->neuronBiases.data(), static_cast<size_t>(this->layerWidth));
+        }
+
         void copyBiasesTo(float* dst) const override
         {
             convert(this->neuronBiases.data(), dst, static_cast<size_t>(this->layerWidth));
         }
 
+        void copyBiasesTo(double* dst) const override
+        {
+            convert(this->neuronBiases.data(), dst, static_cast<size_t>(this->layerWidth));
+        }
+
         void copyActivatedOutputsTo(float* dst) const override
+        {
+            convert(this->neuronOutputsActivated.data(), dst, static_cast<size_t>(this->layerWidth));
+        }
+
+        void copyActivatedOutputsTo(double* dst) const override
         {
             convert(this->neuronOutputsActivated.data(), dst, static_cast<size_t>(this->layerWidth));
         }

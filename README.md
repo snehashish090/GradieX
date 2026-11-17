@@ -32,8 +32,9 @@ together.
 (`float32` / `float64`) next to its function pointers, and the network validates
 that the two agree. Adjacent layers may differ — a `float64` hidden layer can sit
 inside a `float32` network — and the engine converts at every boundary. The
-network's IO stays `float32`, so the Python contract is unchanged; only the
-layer internals move precision.
+network's IO stays `float32` by default (switch it per network with
+`Network(dtype="float64")`), so the Python contract is unchanged; layers move
+precision independently.
 
 Training lives in the engine. The Python `train()` is one call into
 `core::Network::train`: the epoch loop, the shuffle, the batching, gradient
@@ -103,7 +104,7 @@ print(net.predict([1., 0.]))                # [0.9838] (float32)
 | Mismatched dtype + functions | not expressible | **rejected at construction** with `std::invalid_argument` |
 | Derivative validation | Python binding only | **also in `Network::addHiddenLayer` / `addOutputLayer`** |
 | Network copying | implicitly possible — double-frees | **deleted** |
-| Python API | `add_hidden(width, ..., activation, init)` | `add_hidden(..., dtype="float32")`, `gradiex.dtypes()`, `dtype` in `net.layers` |
+| Python API | `add_hidden(width, ..., activation, init)` | `Network(dtype=...)` picks the IO dtype; `add_hidden/add_output(..., dtype=...)` per layer; `gradiex.dtypes()`, `net.dtype`, `dtype` in `net.layers` |
 
 The templating is a pure refactor on the float32 path: a network whose layers all
 declare `DType::float32` runs the same hot loops v0.0.3 ran, with the same
@@ -355,7 +356,7 @@ The sweep restores the trained weights exactly when it finishes.
 
 ## API
 
-### `gradiex.Network(learning_rate=0.01, batch_size=1)`
+### `gradiex.Network(learning_rate=0.01, batch_size=1, dtype="float32")`
 
 Layers are declared, then the engine is constructed by `build()`. Nothing can be run
 until then, and no layers can be added after. `batch_size` is how many samples are
@@ -371,7 +372,7 @@ accumulated before one update: `1` is per-sample SGD, `0` means one batch per ep
 | `evaluate(X, Y)` | Mean loss over a dataset, engine-side, with no update applied. |
 | `forward(x)` / `predict(x)` | One forward pass; returns the output activations. |
 | `loss(x, y)` | Forward `x`, then return the configured loss against `y`. |
-| `weights(layer)` / `biases(layer)` | `float32` arrays; weights shaped `(width, input_size)`. Negative indices allowed. |
+| `weights(layer)` / `biases(layer)` | Arrays in the network's IO dtype (`float32` or `float64`); weights shaped `(width, input_size)`. Negative indices allowed. |
 | `set_weights(layer, values)` / `set_biases(layer, values)` | Overwrite a layer's parameters. Weights accept `(width, input_size)` or flat. |
 
 Gradient primitives, one per engine call, for a hand-rolled loop: `zero_gradients()`,
@@ -388,18 +389,20 @@ Properties: `learning_rate` and `batch_size` (writable), `layers`, `num_hidden`,
 Module level: `gradiex.seed(n)` seeds weight initialisation, `gradiex.THEMES` holds
 the two palettes.
 
-Inputs accept anything NumPy can cast to `float32` — the network's IO dtype is
-always `float32`, whatever the layers do internally. The learning rate is stored as
-`float32`, so `net.learning_rate` reads back rounded — setting `0.05` returns
-`0.05000000074505806`.
+Inputs accept anything NumPy can cast to the network's IO dtype — `float32` by
+default, `float64` for `Network(dtype="float64")` — and `net.dtype` reports it.
+Predictions, `weights()`/`biases()` and the loss history all come back as arrays
+in that dtype. The learning rate is stored as `float32`, so `net.learning_rate`
+reads back rounded — setting `0.05` returns `0.05000000074505806`.
 
 Each layer picks its own scalar type with the `dtype` argument of `add_hidden()` /
-`add_output()`: `"float32"` (the default) or `"float64"`. A `float64` hidden layer
-inside a `float32` network computes its activations and gradients in double, and the
-engine converts at the layer boundaries — float32 in and out, higher precision where
-you asked for it. `net.layers` reports each layer's `dtype`, and `gradiex.dtypes()`
-lists the choices. The layer's `weights()` / `biases()` still cross the boundary as
-`float32` arrays.
+`add_output()`: `"float32"` (the default) or `"float64"`, independently of the
+network's IO dtype. A `float64` hidden layer inside a `float32` network computes
+its activations and gradients in double, and the engine converts at the layer
+boundaries — float32 in and out, higher precision where you asked for it. The
+reverse also works: `Network(dtype="float64")` with all-float32 layers exchanges
+float64 arrays with you and converts at the first layer. `net.layers` reports each
+layer's `dtype`, and `gradiex.dtypes()` lists the choices.
 
 ### Names
 
