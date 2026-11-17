@@ -67,7 +67,13 @@ jobs:
         run: |
           python -m venv /tmp/check
           /tmp/check/bin/pip install --no-binary gradiex dist/*.tar.gz
-          MPLBACKEND=Agg /tmp/check/bin/python -c "import gradiex; print('sdist OK', gradiex.__version__)"
+          # Import from OUTSIDE the checkout: sys.path[0] is the cwd, so running
+          # from the repo root makes Python pick up the checkout's own gradiex/
+          # source directory -- which has no compiled _core on a fresh runner --
+          # instead of the package that was just installed. Printing __file__
+          # keeps the provenance visible in the log.
+          cd "$HOME"
+          MPLBACKEND=Agg /tmp/check/bin/python -c "import gradiex; print('sdist OK', gradiex.__version__, gradiex.__file__)"
 
       - uses: actions/upload-artifact@v7
         with:

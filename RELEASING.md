@@ -101,8 +101,11 @@ Each release lives in its own directory (`0.0.3/`, `0.0.4/`, ...). Before taggin
    python3 -m twine check --strict dist/*
    python3 -m venv /tmp/check
    /tmp/check/bin/pip install dist/gradiex-*.whl
+   cd /tmp   # import from OUTSIDE the checkout: sys.path[0] is the cwd, so the
+             # local gradiex/ (with its in-place _core from step 4) would shadow
+             # the installed wheel and the check would test nothing
    MPLBACKEND=Agg /tmp/check/bin/python -c \
-     "import gradiex; print(gradiex.__version__)"
+     "import gradiex; print(gradiex.__version__, gradiex.__file__)"
    ```
 
 6. **Dry-run the matrix if it has been a while.** `workflow_dispatch` builds every
