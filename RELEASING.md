@@ -91,7 +91,8 @@ Each release lives in its own directory (`0.0.3/`, `0.0.4/`, ...). Before taggin
 
    The Python checks are scripts, not pytest tests: they import `gradiex` from the
    release root and assert as they go. `tests/run_tests.sh` and the CI `test-command`
-   are self-contained; `python/test_*.py` are not part of any job — run them by hand.
+   (`python/wheel_check.py`, run by cibuildwheel from outside the source tree) are
+   self-contained; `python/test_*.py` are not part of any job — run them by hand.
 
 5. **Inspect the built artifacts before pushing a tag.** `twine check` validates that
    the long description renders and that the metadata is well formed:
