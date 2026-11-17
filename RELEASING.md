@@ -56,8 +56,8 @@ Each release lives in its own directory (`0.0.3/`, `0.0.4/`, ...). Before taggin
 
    | file | what |
    | --- | --- |
-   | `pyproject.toml` | `version = "0.0.3"` |
-   | `python/gradiex_module.cpp` | `m.attr("__version__") = py::str("0.0.3")` |
+   | `pyproject.toml` | `version = "0.0.4"` |
+   | `python/gradiex_module.cpp` | `m.attr("__version__") = py::str("0.0.4")` |
    | `README.md` | the version badge |
 
    The sdist and the extension are built from these separately, so `gradiex.__version__`
@@ -80,7 +80,7 @@ Each release lives in its own directory (`0.0.3/`, `0.0.4/`, ...). Before taggin
 4. **Run the suites.** All four, from the release root:
 
    ```bash
-   ./tests/run_tests.sh --simd     # C++ engine, 91 checks; --simd turns the
+   ./tests/run_tests.sh --simd     # C++ engine, 111 checks; --simd turns the
                                    # `#pragma omp simd` directives back on, which is
                                    # the only way a malformed one shows up
    ./tests/run_tests.sh --asan     # same, under ASan/UBSan
@@ -117,8 +117,8 @@ Each release lives in its own directory (`0.0.3/`, `0.0.4/`, ...). Before taggin
 8. **Tag and push.** The tag is the publish button:
 
    ```bash
-   git tag -a v0.0.3 -m "v0.0.3"
-   git push origin main --follow-tags     # or: git push origin v0.0.3
+   git tag -a v0.0.4 -m "v0.0.4"
+   git push origin main --follow-tags     # or: git push origin v0.0.4
    ```
 
 9. **Watch the run** under the repository's *Actions* tab. `publish` needs

@@ -1,5 +1,4 @@
 /*
-
     @file core/layer.h
     @brief Defines the Layer class as a base structure for all neural network layers.
 
@@ -18,7 +17,21 @@
         - To access the weight of the i-th neuron for the j-th input, use the formula: weightIndex = i * inputSize + j.
         - The biases for each neuron are stored in a separate 1D vector, with the i-th neuron's bias at index i.    
         Biases Memory Layout : [b1, b2, b3, ..., bn]
-    
+
+    v0.0.4 layering (per-layer data types):
+        - Every layer's scalar type is a template parameter: Layer<float>, Layer<double>,
+          HiddenLayer<float>, OutputLayer<double>, ... Each layer's buffers, activation,
+          loss and initializer all live in that layer's own T.
+        - The layer constructor takes the dtype as a *runtime* argument as well
+          (`DType dtype`, see core/dtype.h) and validates that it matches T, so a layer
+          can be described -- and checked -- by a value, not just by a template argument.
+        - LayerBase is the type-erased interface a Network walks. Because two adjacent
+          layers may disagree on T, every boundary crossing (forward input, backward
+          deltas/weights, target) carries the source dtype at run time, and each layer
+          converts incoming buffers into its own T once per call into a reused scratch
+          buffer. A network whose layers all share one dtype does not pay for this:
+          same-dtype conversion is a plain vectorisable copy.
+
     Memory Management:
         - Using flat 1D vectors for weights and biases ensures contiguous memory allocation.
         - The use of function pointers, pointers to vector data allows us to perform operations directly on the underlying memory
@@ -31,13 +44,84 @@
 #include <iostream>
 #include <vector>
 #include <functional>
+#include <stdexcept>
+#include <string>
+#include "dtype.h"
 #include "activations.h"
 #include "initializer.h"
 #include "loss.h"
+
 namespace core
 {
-    // Base structure for all layers
-    class Layer
+    // ---------------------------------------------------------------------------
+    // LayerBase: the type-erased view of a layer.
+    //
+    // A Network stores LayerBase pointers so that adjacent layers can live in
+    // different scalar types. The geometry and the dtype are visible here; the
+    // typed buffers live in the Layer<T> template below. Inputs to the virtuals
+    // that cross a layer boundary are raw pointers tagged with the dtype of the
+    // layer that produced them.
+    // ---------------------------------------------------------------------------
+    class LayerBase
+    {
+        public:
+
+        int layerWidth = 0; // Number of neurons in the layer
+        int inputSize = 0;  // Number of inputs each neuron receives
+        DType dtype = DType::float32; // The scalar type this layer computes in
+
+        virtual ~LayerBase() = default;
+
+        virtual void initializeWeightsAndBiases() = 0;
+        virtual void calculateOutputs(const void* input, DType inputDtype) = 0;
+        virtual void zeroGradients() = 0;
+        virtual void scaleGradients(float scale) = 0;
+        virtual void computeGradients() = 0;
+        virtual void updateWeightsAndBiases(float learningRate) = 0;
+
+        // The output-layer role (only OutputLayer<T> overrides this overload):
+        virtual void computeErrorSignal(const void* /*target*/, DType /*targetDtype*/)
+        {
+            throw std::logic_error("computeErrorSignal(target, ...) is only implemented by output layers");
+        }
+        // The hidden-layer role (only HiddenLayer<T> overrides this overload):
+        virtual void computeErrorSignal(int /*nextLayerWidth*/, const void* /*nextLayerDeltas*/,
+                                        const void* /*nextLayerWeights*/, DType /*nextDtype*/)
+        {
+            throw std::logic_error("computeErrorSignal(next, ...) is only implemented by hidden layers");
+        }
+        // Loss is only defined on output layers; reported as double across the
+        // type-erasure boundary so a double layer's loss keeps its precision.
+        virtual double computeLoss(const void* /*target*/, DType /*targetDtype*/) const
+        {
+            throw std::logic_error("computeLoss() is only implemented by output layers");
+        }
+
+        // Raw views of this layer's buffers, in THIS layer's dtype. The Network
+        // uses these to hand one layer's activations/deltas/weights to the next.
+        virtual const void* activatedOutputs() const = 0;
+        virtual const void* deltas() const = 0;
+        virtual const void* weights() const = 0;
+
+        // float32 copies of the parameter buffers. This is the bridge the Python
+        // bindings (and tools) use to move weights/biases across the boundary;
+        // values are converted between float and the layer's T as needed.
+        virtual void copyWeightsFrom(const float* src) = 0;
+        virtual void copyWeightsTo(float* dst) const = 0;
+        virtual void copyBiasesFrom(const float* src) = 0;
+        virtual void copyBiasesTo(float* dst) const = 0;
+        virtual void copyActivatedOutputsTo(float* dst) const = 0;
+    };
+
+    // ---------------------------------------------------------------------------
+    // Layer<T>: the concrete, typed layer.
+    //
+    // Everything the pre-template Layer did, but on T. The layer is constructed
+    // with the dtype as an explicit argument; it must agree with T, so "the
+    // layer is float64" is both a compile-time and a runtime fact.
+    // ---------------------------------------------------------------------------
+    template <typename T>
+    class Layer : public LayerBase
     {
         /**
             Layer class represents a single layer in a neural network.
@@ -48,7 +132,7 @@ namespace core
                     eg : vector[i] = data WRONG DO NOT DO THIS 
                     
                     Correct way:
-                    float* __restrict__ vec = vector.data();
+                    T* __restrict__ vec = vector.data();
                     vec[i] = data;
 
                     Why?  Using __restrict__ informs the compiler that the pointer is the only reference to that memory. 
@@ -56,44 +140,59 @@ namespace core
         // Class Members
         public:
 
-        int layerWidth = 0; // Number of neurons in the layer
-        int inputSize=0;
-        std::vector<float> layerInputs;
-        core::functions::activations::ActivationFunction activationFunction = nullptr; // Activation function for the layer
-        core::functions::activations::ActivationFunctionDerivative activationFunctionDerivative = nullptr; // Activation function derivative for the layer
-        core::functions::initializers::initFunction initialiser = nullptr; // Initialiser for the layer weights
-        core::functions::loss::LossFunction lossFunction = nullptr; // Loss function for the layer
-        core::functions::loss::LossFunctionDerivative lossFunctionDerivative = nullptr; // Loss function derivative for the layer
-        std::vector<float> neuronOutputsUnactivated; // Stores the z values
-        std::vector<float> neuronOutputsActivated; // Stores the activated outputs (a values)
-        std::vector<float> neuronDeltas; // Stores the error signals (delta values)
-        std::vector<float> neuronWeights; // Stores the weights of the layer as a 1D Matrix
+        using ActivationFn = core::functions::activations::ActivationFunction<T>;
+        using ActivationDerivativeFn = core::functions::activations::ActivationFunctionDerivative<T>;
+        using InitFn = core::functions::initializers::initFunction<T>;
+        using LossFn = core::functions::loss::LossFunction<T>;
+        using LossDerivativeFn = core::functions::loss::LossFunctionDerivative<T>;
+
+        ActivationFn activationFunction = nullptr; // Activation function for the layer
+        ActivationDerivativeFn activationFunctionDerivative = nullptr; // Activation function derivative for the layer
+        InitFn initialiser = nullptr; // Initialiser for the layer weights
+        LossFn lossFunction = nullptr; // Loss function for the layer
+        LossDerivativeFn lossFunctionDerivative = nullptr; // Loss function derivative for the layer
+        std::vector<T> layerInputs;              // Caches the last input (in T) fed to calculateOutputs
+        std::vector<T> neuronOutputsUnactivated; // Stores the z values
+        std::vector<T> neuronOutputsActivated;   // Stores the activated outputs (a values)
+        std::vector<T> neuronDeltas;             // Stores the error signals (delta values)
+        std::vector<T> neuronWeights;            // Stores the weights of the layer as a 1D Matrix
         // Why? a vector of vector causes heap allocations.
-        std::vector<float> neuronBiases; // Stores the biases of the layer
-        std::vector<float> scratchPad1; // Temporary storage for intermediate calculations
-        std::vector<float> scratchPad2;
-        std::vector<float> neuronWeightGradients; // Stores the gradients of the neurons
-        std::vector<float> neuronBiasGradients; // Stores the gradients of the neuron biases
+        std::vector<T> neuronBiases;             // Stores the biases of the layer
+        std::vector<T> scratchPad1;              // Temporary storage for intermediate calculations
+        std::vector<T> scratchPad2;
+        std::vector<T> neuronWeightGradients;    // Stores the gradients of the neurons
+        std::vector<T> neuronBiasGradients;      // Stores the gradients of the neuron biases
 
         Layer() noexcept = default;
+
         Layer(int width, 
             int inputSize,
-            core::functions::activations::ActivationFunction activation,
-            core::functions::initializers::initFunction init,
-            core::functions::loss::LossFunction loss)
+            DType dtype,
+            ActivationFn activation,
+            InitFn init,
+            LossFn loss)
         {
             /**
-             * Constructs a layer with the specified width, input size, activation function, initializer, and loss function. 
+             * Constructs a layer with the specified width, input size, dtype, activation function,
+             * initializer, and loss function.
              * @param width The width of the layer
              * @param inputSize The size of the input vector
+             * @param dtype The scalar type the layer computes in; must match T
              * @param activation The activation function for the layer
              * @param init The initializer function for the layer's weights
              * @param loss The loss function associated with the layer
              */
 
-            // Sorry that I am not using MIL :( Maybe I am old fashioned that way?
+            // The runtime dtype argument must agree with the compile-time scalar
+            // type, otherwise "this layer is float64" would be a lie one level up.
+            if (dtype != dtype_of<T>::value)
+                throw std::invalid_argument(
+                    "Layer: dtype '" + std::string(dtype_name(dtype)) + "' does not match the "
+                    "layer's scalar type '" + std::string(dtype_name(dtype_of<T>::value)) + "'");
+
             this->layerWidth = width;
             this->inputSize = inputSize;
+            this->dtype = dtype;
             this->activationFunction = activation;
             // The derivatved is DERIVED from the activation function (lmao :D)
             this->activationFunctionDerivative = core::functions::activations::fetchAssociatedDerivative(activation);
@@ -102,20 +201,30 @@ namespace core
             this->lossFunction = loss;
             
             // Reserve memory for all the vectors 
-            this->layerInputs.resize(inputSize);
-            this->neuronOutputsUnactivated.resize(width);
-            this->neuronOutputsActivated.resize(width);
-            this->neuronDeltas.resize(width);
-            this->neuronWeights.resize(width * inputSize);
-            this->neuronBiases.resize(width);
-            this->neuronWeightGradients.resize(width * inputSize);
-            this->neuronBiasGradients.resize(width);
+            this->layerInputs.resize(static_cast<size_t>(inputSize));
+            this->neuronOutputsUnactivated.resize(static_cast<size_t>(width));
+            this->neuronOutputsActivated.resize(static_cast<size_t>(width));
+            this->neuronDeltas.resize(static_cast<size_t>(width));
+            this->neuronWeights.resize(static_cast<size_t>(width) * static_cast<size_t>(inputSize));
+            this->neuronBiases.resize(static_cast<size_t>(width));
+            this->neuronWeightGradients.resize(static_cast<size_t>(width) * static_cast<size_t>(inputSize));
+            this->neuronBiasGradients.resize(static_cast<size_t>(width));
 
-            this->scratchPad1.resize(width); // Allocate enough buffer
-            this->scratchPad2.resize(width); // Allocate enough buffer
+            this->scratchPad1.resize(static_cast<size_t>(width)); // Allocate enough buffer
+            this->scratchPad2.resize(static_cast<size_t>(width)); // Allocate enough buffer
         }
 
-        void initializeWeightsAndBiases()
+        // Convenience overload: the dtype is implied by the scalar type T.
+        Layer(int width,
+            int inputSize,
+            ActivationFn activation,
+            InitFn init,
+            LossFn loss)
+            : Layer(width, inputSize, dtype_of<T>::value, activation, init, loss)
+        {
+        }
+
+        void initializeWeightsAndBiases() override
         {
             /**
              * Initializes the weights and biases of the layer.
@@ -125,21 +234,21 @@ namespace core
              * @param layerWidth The width of the layer
              */
             
-            float* __restrict__ neuronWeights = this->neuronWeights.data();
-            float* __restrict__ neuronBiases = this->neuronBiases.data();
+            T* __restrict__ neuronWeights = this->neuronWeights.data();
+            T* __restrict__ neuronBiases = this->neuronBiases.data();
 
             // Initialize the weights and biases using the provided initialiser
             this->initialiser(
                 neuronWeights, // The neuron's weights
-                this->inputSize,
-                this->layerWidth
+                static_cast<size_t>(this->inputSize),
+                static_cast<size_t>(this->layerWidth)
             );
             // Set the biases to zero initially {that is the general convention}
-            for (int i = 0; i < layerWidth; ++i)
-                neuronBiases[i] = 0.0f;
+            for (int i = 0; i < this->layerWidth; ++i)
+                neuronBiases[i] = static_cast<T>(0);
         }
 
-        void calculateOutputs(const float* __restrict__ input)
+        void calculateOutputs(const void* input, DType inputDtype) override
         {
             /**
              * Calculates the outputs of the layer given the input vector.
@@ -148,42 +257,59 @@ namespace core
              * z^{[l]} represents the unactivated outputs of the current layer
              * W^{[l]} represents the weight matrix, a^{[l-1]} represents the activated outputs of the previous layer
              * b^{[l]} represents the biases of the current layer.
-             * @param input Pointer to the input vector
+             * @param input Pointer to the input vector, in `inputDtype` (the previous layer's dtype)
+             * @param inputDtype The dtype of the input vector
              * @return void
              */
 
-            float* __restrict__ layerInputs = this->layerInputs.data();
-            float* __restrict__ neuronOutputsUnactivated = this->neuronOutputsUnactivated.data();
-            float* __restrict__ neuronOutputsActivated = this->neuronOutputsActivated.data();
-            const float* __restrict__ neuronWeights = this->neuronWeights.data();
-            const float* __restrict__ neuronBiases = this->neuronBiases.data();
+            T* __restrict__ layerInputs = this->layerInputs.data();
+            T* __restrict__ neuronOutputsUnactivated = this->neuronOutputsUnactivated.data();
+            T* __restrict__ neuronOutputsActivated = this->neuronOutputsActivated.data();
+            const T* __restrict__ neuronWeights = this->neuronWeights.data();
+            const T* __restrict__ neuronBiases = this->neuronBiases.data();
 
             const int width     = this->layerWidth; // Load ahead of time
             const int inputSize = this->inputSize;
 
-            for (int inputIdx = 0; inputIdx < inputSize; ++inputIdx)
-                // Cache the inputs passed into the layer's member variable
-                layerInputs[inputIdx] = input[inputIdx];
+            // Cache the inputs passed into the layer's member variable, converting
+            // them into this layer's dtype when the previous layer differs.
+            if (inputDtype == dtype_of<T>::value)
+            {
+                const T* __restrict__ src = static_cast<const T*>(input);
+                #pragma omp simd
+                for (int inputIdx = 0; inputIdx < inputSize; ++inputIdx)
+                    layerInputs[inputIdx] = src[inputIdx];
+            }
+            else
+            {
+                convertFrom(static_cast<const void*>(input), inputDtype,
+                            layerInputs, static_cast<size_t>(inputSize));
+            }
             
             for (int neuron = 0; neuron < width; ++neuron)
             {
-                const float* __restrict__ w = neuronWeights + neuron * inputSize;
-                float sum = 0.0f;
+                const T* __restrict__ w = neuronWeights + neuron * inputSize;
+                T sum = static_cast<T>(0);
                 // Vectorise the dot product computation using OpenMP SIMD directive
                 #pragma omp simd reduction(+:sum)
                 for (int inputIdx = 0; inputIdx < inputSize; ++inputIdx)
                     sum += w[inputIdx] * layerInputs[inputIdx];
                 neuronOutputsUnactivated[neuron] = sum + neuronBiases[neuron];
             }
-            // Activate the output. Is this a trivial step? yes. Can it be parameterized? Yes. 
-            // Why is not optional? Because I wanna build in baby steps. Let's not get ahead of ourselves. 
-            // And focus on the major features I need to build this project :D
+            // Activate the output.
             this->activationFunction(neuronOutputsUnactivated,
                                     neuronOutputsActivated,
-                                    width);
+                                    static_cast<size_t>(width));
         }
 
-        void zeroGradients()
+        // Convenience overload for callers that already hold T buffers: the input
+        // dtype is implied. (Direct calls with the wrong type simply do not compile.)
+        void calculateOutputs(const T* input)
+        {
+            calculateOutputs(static_cast<const void*>(input), dtype_of<T>::value);
+        }
+
+        void zeroGradients() override
         {
             /**
              * Zeros out the gradients of the layer's weights and biases.
@@ -191,21 +317,21 @@ namespace core
              * This is typically done at the beginning of a training step to ensure that gradients from previous steps do not accumulate.
              */
             // Set our local pointers to the vectors for easier access and potential SIMD optimization.
-            float* __restrict__ neuronWeightGradients = this->neuronWeightGradients.data();
-            float* __restrict__ neuronBiasGradients   = this->neuronBiasGradients.data();
+            T* __restrict__ neuronWeightGradients = this->neuronWeightGradients.data();
+            T* __restrict__ neuronBiasGradients   = this->neuronBiasGradients.data();
             const int totalWeights = this->layerWidth * this->inputSize;
             const int width        = this->layerWidth;
             // I think its pretty simple, just set all gradients & biases to zero.
             #pragma omp simd
             for (int i = 0; i < totalWeights; ++i)
-                neuronWeightGradients[i] = 0.0f;
+                neuronWeightGradients[i] = static_cast<T>(0);
 
             #pragma omp simd
             for (int i = 0; i < width; ++i)
-                neuronBiasGradients[i] = 0.0f;
+                neuronBiasGradients[i] = static_cast<T>(0);
         }
 
-        void scaleGradients(float scale)
+        void scaleGradients(float scale) override
         {
             /**
              * Scales the gradients of the layer's weights and biases by the given factor.
@@ -215,23 +341,24 @@ namespace core
              * Why would we want to scale gradients? 
              * This is typically done to adjust the learning rate dynamically or to implement gradient clipping.
              */
-            float* __restrict__ neuronWeightGradients = this->neuronWeightGradients.data();
-            float* __restrict__ neuronBiasGradients   = this->neuronBiasGradients.data();
+            T* __restrict__ neuronWeightGradients = this->neuronWeightGradients.data();
+            T* __restrict__ neuronBiasGradients   = this->neuronBiasGradients.data();
             const int totalWeights = this->layerWidth * this->inputSize;
             const int width        = this->layerWidth;
+            const T scaleT = static_cast<T>(scale);
 
             // Again, we use SIMD to efficiently scale all gradients in parallel.
             // And we simply multiply vector elements by the scale factor.
             #pragma omp simd
             for (int i = 0; i < totalWeights; ++i)
-                neuronWeightGradients[i] *= scale;
+                neuronWeightGradients[i] *= scaleT;
 
             #pragma omp simd
             for (int i = 0; i < width; ++i)
-                neuronBiasGradients[i] *= scale;
+                neuronBiasGradients[i] *= scaleT;
         }
 
-        void computeGradients()
+        void computeGradients() override
         {
             /**
              * @brief Computes the gradients of the layer's weights and biases based on the current neuron deltas and inputs.
@@ -241,10 +368,10 @@ namespace core
              * This function does not take any parameters as it operates on the internal state of the layer.
              */
             // Set vector pointers 
-            const float* __restrict__ savedInputs = this->layerInputs.data();
-            const float* __restrict__ neuronDeltas = this->neuronDeltas.data();
-            float* __restrict__ neuronWeightGradients = this->neuronWeightGradients.data();
-            float* __restrict__ neuronBiasGradients   = this->neuronBiasGradients.data();
+            const T* __restrict__ savedInputs = this->layerInputs.data();
+            const T* __restrict__ neuronDeltas = this->neuronDeltas.data();
+            T* __restrict__ neuronWeightGradients = this->neuronWeightGradients.data();
+            T* __restrict__ neuronBiasGradients   = this->neuronBiasGradients.data();
             const int width = this->layerWidth;
             const int inputSize = this->inputSize;
 
@@ -256,8 +383,8 @@ namespace core
             // which is where the bulk of the computation occurs and can benefit from vectorization.
             for (int neuron = 0; neuron < width; ++neuron)
             {
-                const float delta = neuronDeltas[neuron];
-                float* __restrict__ dW = neuronWeightGradients + neuron * inputSize;
+                const T delta = neuronDeltas[neuron];
+                T* __restrict__ dW = neuronWeightGradients + neuron * inputSize;
 
                 #pragma omp simd
                 for (int inputIdx = 0; inputIdx < inputSize; ++inputIdx)
@@ -267,7 +394,7 @@ namespace core
             }
         }
 
-        void updateWeightsAndBiases(float learningRate)
+        void updateWeightsAndBiases(float learningRate) override
         {
             /**
              * @brief Updates the weights and biases of the layer using the computed gradients.
@@ -275,12 +402,13 @@ namespace core
              * @return void
              * This function updates the internal weights and biases of the layer based on the previously computed gradients.
              */
-            const float* __restrict__ neuronWeightGradients = this->neuronWeightGradients.data();
-            const float* __restrict__ neuronBiasGradients   = this->neuronBiasGradients.data();
-            float* __restrict__ neuronWeights = this->neuronWeights.data();
-            float* __restrict__ neuronBiases  = this->neuronBiases.data();
+            const T* __restrict__ neuronWeightGradients = this->neuronWeightGradients.data();
+            const T* __restrict__ neuronBiasGradients   = this->neuronBiasGradients.data();
+            T* __restrict__ neuronWeights = this->neuronWeights.data();
+            T* __restrict__ neuronBiases  = this->neuronBiases.data();
             const int width = this->layerWidth;
             const int inputSize = this->inputSize;
+            const T lr = static_cast<T>(learningRate);
 
             // Again, we apply SIMD only to the inner loop over inputs for efficient vectorized updates.
             for (int neuron = 0; neuron < width; ++neuron)
@@ -288,50 +416,147 @@ namespace core
                 #pragma omp simd
                 for (int input = 0; input < inputSize; ++input)
                     neuronWeights[neuron * inputSize + input] -= 
-                    learningRate * neuronWeightGradients[neuron * inputSize + input];
-                neuronBiases[neuron] -= learningRate * neuronBiasGradients[neuron];
+                    lr * neuronWeightGradients[neuron * inputSize + input];
+                neuronBiases[neuron] -= lr * neuronBiasGradients[neuron];
             }
+        }
+
+        // ------------------------------------------------------- LayerBase views
+
+        const void* activatedOutputs() const override
+        {
+            return this->neuronOutputsActivated.data();
+        }
+
+        const void* deltas() const override
+        {
+            return this->neuronDeltas.data();
+        }
+
+        const void* weights() const override
+        {
+            return this->neuronWeights.data();
+        }
+
+        void copyWeightsFrom(const float* src) override
+        {
+            convert(src, this->neuronWeights.data(),
+                    static_cast<size_t>(this->layerWidth) * static_cast<size_t>(this->inputSize));
+        }
+
+        void copyWeightsTo(float* dst) const override
+        {
+            convert(this->neuronWeights.data(), dst,
+                    static_cast<size_t>(this->layerWidth) * static_cast<size_t>(this->inputSize));
+        }
+
+        void copyBiasesFrom(const float* src) override
+        {
+            convert(src, this->neuronBiases.data(), static_cast<size_t>(this->layerWidth));
+        }
+
+        void copyBiasesTo(float* dst) const override
+        {
+            convert(this->neuronBiases.data(), dst, static_cast<size_t>(this->layerWidth));
+        }
+
+        void copyActivatedOutputsTo(float* dst) const override
+        {
+            convert(this->neuronOutputsActivated.data(), dst, static_cast<size_t>(this->layerWidth));
         }
     };
 
-    class OutputLayer : public Layer
+    // ---------------------------------------------------------------------------
+    // OutputLayer<T>: computes its error signal from the target directly.
+    // ---------------------------------------------------------------------------
+    template <typename T>
+    class OutputLayer : public Layer<T>
     {
         public:
-            using Layer::Layer;
-            void computeErrorSignal(const float*__restrict__ target)
+            using Layer<T>::Layer;
+            // Keep the type-erased overloads visible next to the T-typed convenience
+            // overloads, so the derived class does not hide them (and warn about it).
+            using LayerBase::computeErrorSignal;
+            using LayerBase::computeLoss;
+
+            void computeErrorSignal(const void* target, DType targetDtype) override
             {
                 /**
                  * @brief Computes the error signal (deltas) for the output layer based on the target output.
-                 * @param target Pointer to the array of target output values.
+                 * @param target Pointer to the array of target output values, in `targetDtype`
+                 * (the network's IO dtype, which need not match this layer's dtype).
+                 * @param targetDtype The dtype of the target vector.
                  * @return void
                  * This function calculates the error signal for each neuron in the output layer by computing the derivative of 
                  * the loss function with respect to the neuron's activated output and multiplying it by the derivative of the 
                  * activation function.
                  */
-                float* neuronDeltas = this->neuronDeltas.data();
+                const int width = this->layerWidth;
+
+                // Convert the target into this layer's dtype; the scratch buffer is
+                // allocated once and reused on every subsequent call.
+                this->targetScratch_.resize(static_cast<size_t>(width));
+                convertFrom(target, targetDtype, this->targetScratch_.data(), static_cast<size_t>(width));
+
+                T* __restrict__ neuronDeltas = this->neuronDeltas.data();
                 // Compute the derivative of the loss function with respect to the activated outputs.
-                float* lossDerivative = this->lossFunctionDerivative(
-                    target,
+                T* lossDerivative = this->lossFunctionDerivative(
+                    this->targetScratch_.data(),
                     this->neuronOutputsActivated.data(),
-                    scratchPad1.data(),
-                    this->layerWidth
+                    this->scratchPad1.data(),
+                    static_cast<size_t>(width)
                 );
                 // Compute the derivative of the activation function with respect to the unactivated outputs.
-                float* activationDerivedInputs = this->activationFunctionDerivative(
+                T* activationDerivedInputs = this->activationFunctionDerivative(
                     this->neuronOutputsUnactivated.data(),
-                    scratchPad2.data(),
-                    this->layerWidth
+                    this->scratchPad2.data(),
+                    static_cast<size_t>(width)
                 );
                 #pragma omp simd 
                 // Compute the error signal for each neuron in the output layer.
                 // Which is the element-wise product of the loss derivative and the activation function derivative.
-                for (int neuron = 0; neuron < this->layerWidth; ++neuron)
+                for (int neuron = 0; neuron < width; ++neuron)
                     neuronDeltas[neuron] = lossDerivative[neuron] * activationDerivedInputs[neuron];
             }
+
+            // Convenience overload: the target is already in this layer's dtype.
+            void computeErrorSignal(const T* target)
+            {
+                computeErrorSignal(static_cast<const void*>(target), dtype_of<T>::value);
+            }
+
+            double computeLoss(const void* target, DType targetDtype) const override
+            {
+                /**
+                 * @brief Computes the loss of this layer against the target.
+                 * @return The loss, widened to double across the type-erasure boundary.
+                 */
+                const int width = this->layerWidth;
+                this->targetScratch_.resize(static_cast<size_t>(width));
+                convertFrom(target, targetDtype, this->targetScratch_.data(), static_cast<size_t>(width));
+                return static_cast<double>(this->lossFunction(
+                    this->targetScratch_.data(),
+                    this->neuronOutputsActivated.data(),
+                    static_cast<size_t>(width)
+                ));
+            }
+
+            // Convenience overload: the target is already in this layer's dtype.
+            double computeLoss(const T* target) const
+            {
+                return computeLoss(static_cast<const void*>(target), dtype_of<T>::value);
+            }
+
+        private:
+            mutable std::vector<T> targetScratch_; // converted copy of the last target
     };
     
-    // Has a different way of calculating error signal
-    class HiddenLayer : public Layer
+    // ---------------------------------------------------------------------------
+    // HiddenLayer<T>: computes its error signal from the next layer's deltas and
+    // weights, which arrive in the next layer's dtype and are converted here.
+    // ---------------------------------------------------------------------------
+    template <typename T>
+    class HiddenLayer : public Layer<T>
     {
         /**
          * What is different? 
@@ -339,41 +564,56 @@ namespace core
          * rather than directly from the target output as in the OutputLayer.
          */
     public:
-        using Layer::Layer;
+        using Layer<T>::Layer;
+        // Keep the type-erased overloads visible next to the T-typed convenience
+        // overload, so the derived class does not hide them (and warn about it).
+        using LayerBase::computeErrorSignal;
+
         void computeErrorSignal(int nextLayerWidth, 
-            const float* nextLayerDeltas, 
-            const float* nextLayerWeights)
+            const void* nextLayerDeltas, 
+            const void* nextLayerWeights,
+            DType nextDtype) override
         {
             /**
              * @brief Computes the error signal (deltas) for the hidden layer based on the next layer's deltas and weights.
              * @param nextLayerWidth The number of neurons in the next layer.
-             * @param nextLayerDeltas Pointer to the array of deltas from the next layer.
-             * @param nextLayerWeights Pointer to the array of weights connecting this layer to the next layer.
+             * @param nextLayerDeltas Pointer to the array of deltas from the next layer, in `nextDtype`.
+             * @param nextLayerWeights Pointer to the array of weights connecting this layer to the next layer, in `nextDtype`.
+             * @param nextDtype The dtype of both next-layer buffers.
              * @return void
              * This function calculates the error signal for each neuron in the hidden layer by propagating the errors from 
              * the next layer backward through the weights and applying the derivative of the activation function.
              */
-            float* neuronDeltas = this->neuronDeltas.data();
+            const int width = this->layerWidth;
+            const size_t nextWeightCount = static_cast<size_t>(nextLayerWidth) * static_cast<size_t>(width);
+
+            // Convert the next layer's buffers into this layer's dtype. The scratch
+            // buffers are allocated on the first call and reused from then on, so
+            // the steady-state backward pass performs no heap allocations.
+            this->nextDeltaScratch_.resize(static_cast<size_t>(nextLayerWidth));
+            this->nextWeightScratch_.resize(nextWeightCount);
+            convertFrom(nextLayerDeltas, nextDtype, this->nextDeltaScratch_.data(), static_cast<size_t>(nextLayerWidth));
+            convertFrom(nextLayerWeights, nextDtype, this->nextWeightScratch_.data(), nextWeightCount);
+
+            T* __restrict__ neuronDeltas = this->neuronDeltas.data();
 
             // 1. Compute derivatives for the whole layer in one go.
-            float* activationDerivedInputs = this->activationFunctionDerivative(
+            T* activationDerivedInputs = this->activationFunctionDerivative(
                 this->neuronOutputsUnactivated.data(),
-                scratchPad2.data(),
-                this->layerWidth
+                this->scratchPad2.data(),
+                static_cast<size_t>(width)
             );
-
-            const int width = this->layerWidth;
 
             #pragma omp simd
             // Empty before insertion of propagated errors from the next layer.
             for (int neuron = 0; neuron < width; ++neuron)
-                neuronDeltas[neuron] = 0.0f;
+                neuronDeltas[neuron] = static_cast<T>(0);
 
             for (int nextNeuron = 0; nextNeuron < nextLayerWidth; ++nextNeuron)
             {
                 // Get the delta from the l+1 (next) layer
-                const float nextDelta = nextLayerDeltas[nextNeuron];
-                const float* __restrict__ nextWeightRow = nextLayerWeights + static_cast<size_t>(nextNeuron) * width;
+                const T nextDelta = this->nextDeltaScratch_[static_cast<size_t>(nextNeuron)];
+                const T* __restrict__ nextWeightRow = this->nextWeightScratch_.data() + static_cast<size_t>(nextNeuron) * static_cast<size_t>(width);
                 #pragma omp simd
                 // Propagate the error from the next layer to the current layer.
                 for (int neuron = 0; neuron < width; ++neuron)
@@ -385,7 +625,18 @@ namespace core
                 // Multiply by the derivative of the activation function
                 neuronDeltas[neuron] *= activationDerivedInputs[neuron];
         }
-    };
 
-    
+        // Convenience overload: both next-layer buffers are already in this layer's dtype.
+        void computeErrorSignal(int nextLayerWidth, const T* nextLayerDeltas, const T* nextLayerWeights)
+        {
+            computeErrorSignal(nextLayerWidth,
+                               static_cast<const void*>(nextLayerDeltas),
+                               static_cast<const void*>(nextLayerWeights),
+                               dtype_of<T>::value);
+        }
+
+    private:
+        std::vector<T> nextDeltaScratch_; // converted copy of the next layer's deltas
+        std::vector<T> nextWeightScratch_; // converted copy of the next layer's weights
+    };
 }

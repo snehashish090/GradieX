@@ -5,6 +5,37 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.4] - 2026-11-17
+
+Templated scalars and per-layer data types.
+
+### Added
+
+- **Templated engine.** Every activation, loss and initializer is now a function
+  template on the scalar type `T` (`core/activations.h`, `core/loss.h`,
+  `core/initializer.h`), and `Layer<T>` / `HiddenLayer<T>` / `OutputLayer<T>`
+  compute entirely in `T`. `Network` is a template on its IO type with a `float`
+  default, so `core::Network` and `core::Network<double>` both work.
+- **Per-layer data types.** Layers take a `DType` (`float32` / `float64`) as a
+  constructor argument next to their function pointers, and the network validates
+  that the two agree. Adjacent layers may use different scalar types; each layer
+  converts incoming activations, deltas and weights into its own type at the
+  boundary via `core/dtype.h`, so a float64 hidden layer can sit inside a float32
+  network. Same-dtype networks keep the zero-allocation hot path.
+- **Python `dtype` argument.** `add_hidden()` / `add_output()` accept
+  `dtype="float32"` or `dtype="float64"`; `gradiex.dtypes()` lists the choices and
+  `layer_specs()` reports each layer's dtype. The network IO stays float32.
+- **Type-erased `LayerBase`** with float32 copy accessors (`copyWeightsTo/From`,
+  `copyBiasesTo/From`, `copyActivatedOutputsTo`) for the Python bindings and tools.
+- **Derivative validation in `Network::addHiddenLayer` / `addOutputLayer`**:
+  layers whose activation or loss has no registered derivative are refused at
+  construction instead of crashing on the first backward pass.
+
+### Changed
+
+- `Network` is no longer copyable: it owns its layers, so a memberwise copy would
+  double-free them.
+
 > **Note on version ordering.** `0.0.2` was an architecture rewrite that temporarily
 > dropped features present in `0.0.1`, and `0.0.3` continues that line. The numbering
 > is non-monotonic in feature count by design: a lower count at a higher number marks

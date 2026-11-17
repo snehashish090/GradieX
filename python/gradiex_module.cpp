@@ -1,4 +1,4 @@
-// Python bindings for the GradieX 0.0.3 engine.
+// Python bindings for the GradieX 0.0.4 engine.
 //
 // Two design rules hold this file together.
 //
@@ -14,6 +14,12 @@
 //    backward pass only propagates from outputLayers[0]). This layer collects
 //    layer specs first and constructs core::Network only in build(), so none of
 //    those states are reachable from Python.
+//
+// 0.0.4 adds per-layer data types. `dtype` on add_hidden()/add_output() names
+// the scalar type a layer computes in ("float32" or "float64"); every name
+// table below exists once per scalar type, and build() dispatches on the
+// spec's dtype. The network's own IO stays float32 (__dtype__), so numpy
+// arrays keep the same contract whatever the layers do internally.
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 #include <pybind11/numpy.h>
@@ -21,6 +27,7 @@
 #include "core/network.h"
 
 #include <algorithm>
+#include <iostream>
 #include <map>
 #include <memory>
 #include <optional>
@@ -39,37 +46,42 @@ namespace los = core::functions::loss;
 // Only the forward functions are named here. The engine derives the matching
 // derivative itself (Layer's constructor calls fetchAssociatedDerivative), so
 // naming a derivative here would just be a second source of truth to drift.
+// The tables are templates: one per scalar type, because a layer's functions
+// must live in the same type the layer computes in.
 
-static const std::map<std::string, act::ActivationFunction>& activations() {
-    static const std::map<std::string, act::ActivationFunction> t{
-        {"identity",   act::identity},
-        {"linear",     act::identity},
-        {"sigmoid",    act::sigmoid},
-        {"relu",       act::relu},
-        {"leaky_relu", act::leakyRelu},
-        {"tanh",       act::tanh},
-        {"swish",      act::swish},
-        {"gelu",       act::gelu},
-        {"softmax",    act::softmax},
+template <typename T>
+static const std::map<std::string, act::ActivationFunction<T>>& activations() {
+    static const std::map<std::string, act::ActivationFunction<T>> t{
+        {"identity",   act::identity<T>},
+        {"linear",     act::identity<T>},
+        {"sigmoid",    act::sigmoid<T>},
+        {"relu",       act::relu<T>},
+        {"leaky_relu", act::leakyRelu<T>},
+        {"tanh",       act::tanh<T>},
+        {"swish",      act::swish<T>},
+        {"gelu",       act::gelu<T>},
+        {"softmax",    act::softmax<T>},
     };
     return t;
 }
-static const std::map<std::string, los::LossFunction>& losses() {
-    static const std::map<std::string, los::LossFunction> t{
-        {"mse",                   los::mse},
-        {"mae",                   los::mae},
-        {"huber",                 los::huber},
-        {"binary_cross_entropy",  los::binaryCrossEntropy},
-        {"bce",                   los::binaryCrossEntropy},
-        {"cross_entropy",         los::crossEntropy},
-        {"cce",                   los::crossEntropy},
-        {"softmax_cross_entropy", los::softmaxCrossEntropy},
+template <typename T>
+static const std::map<std::string, los::LossFunction<T>>& losses() {
+    static const std::map<std::string, los::LossFunction<T>> t{
+        {"mse",                   los::mse<T>},
+        {"mae",                   los::mae<T>},
+        {"huber",                 los::huber<T>},
+        {"binary_cross_entropy",  los::binaryCrossEntropy<T>},
+        {"bce",                   los::binaryCrossEntropy<T>},
+        {"cross_entropy",         los::crossEntropy<T>},
+        {"cce",                   los::crossEntropy<T>},
+        {"softmax_cross_entropy", los::softmaxCrossEntropy<T>},
     };
     return t;
 }
-static const std::map<std::string, ini::initFunction>& initializers() {
-    static const std::map<std::string, ini::initFunction> t{
-        {"zeros", ini::zeros}, {"xavier", ini::xavier}, {"he", ini::he},
+template <typename T>
+static const std::map<std::string, ini::initFunction<T>>& initializers() {
+    static const std::map<std::string, ini::initFunction<T>> t{
+        {"zeros", ini::zeros<T>}, {"xavier", ini::xavier<T>}, {"he", ini::he<T>},
     };
     return t;
 }
@@ -82,15 +94,16 @@ static std::string known_keys(const Map& m) {
     return os.str();
 }
 
-static act::ActivationFunction lookup_activation(const std::string& name, const char* where) {
-    auto it = activations().find(name);
-    if (it == activations().end())
+template <typename T>
+static act::ActivationFunction<T> lookup_activation(const std::string& name, const char* where) {
+    auto it = activations<T>().find(name);
+    if (it == activations<T>().end())
         throw std::invalid_argument("unknown activation '" + name + "' for " + where +
-                                    "; available: " + known_keys(activations()));
+                                    "; available: " + known_keys(activations<T>()));
     // The engine resolves the derivative by function-pointer identity. If it cannot,
     // the layer would train against a null derivative and segfault on the first
     // backward pass, so refuse here instead.
-    if (act::fetchAssociatedDerivative(it->second) == nullptr) {
+    if (act::fetchAssociatedDerivative<T>(it->second) == nullptr) {
         if (name == "softmax")
             throw std::invalid_argument(
                 "activation 'softmax' cannot be trained through: its derivative is a Jacobian, "
@@ -102,28 +115,32 @@ static act::ActivationFunction lookup_activation(const std::string& name, const 
     }
     return it->second;
 }
-static los::LossFunction lookup_loss(const std::string& name) {
-    auto it = losses().find(name);
-    if (it == losses().end())
-        throw std::invalid_argument("unknown loss '" + name + "'; available: " + known_keys(losses()));
-    if (los::fetchAssociatedDerivative(it->second) == nullptr)
+template <typename T>
+static los::LossFunction<T> lookup_loss(const std::string& name) {
+    auto it = losses<T>().find(name);
+    if (it == losses<T>().end())
+        throw std::invalid_argument("unknown loss '" + name + "'; available: " + known_keys(losses<T>()));
+    if (los::fetchAssociatedDerivative<T>(it->second) == nullptr)
         throw std::invalid_argument("loss '" + name + "' has no derivative registered in "
                                     "core/loss.h, so it cannot be trained against");
     return it->second;
 }
-static ini::initFunction lookup_init(const std::string& name) {
-    auto it = initializers().find(name);
-    if (it == initializers().end())
+template <typename T>
+static ini::initFunction<T> lookup_init(const std::string& name) {
+    auto it = initializers<T>().find(name);
+    if (it == initializers<T>().end())
         throw std::invalid_argument("unknown initializer '" + name + "'; available: " +
-                                    known_keys(initializers()));
+                                    known_keys(initializers<T>()));
     return it->second;
 }
 
 // ------------------------------------------------------------- numpy helpers
 //
-// The engine is float32 end to end, so the arrays crossing this boundary are
-// float32. NumPy float64 input is accepted and cast (forcecast), because
-// refusing a plain Python list of doubles would be hostile.
+// The network's IO is float32 end to end, so the arrays crossing this boundary
+// are float32. NumPy float64 input is accepted and cast (forcecast), because
+// refusing a plain Python list of doubles would be hostile. A layer that
+// computes in float64 still exchanges float32 with this boundary; the layer
+// converts at the edge.
 
 using Arr = py::array_t<float, py::array::c_style | py::array::forcecast>;
 
@@ -175,26 +192,34 @@ public:
     Network& operator=(const Network&) = delete;
 
     void add_hidden(int width, std::optional<int> input_size,
-                    const std::string& activation, const std::string& init) {
+                    const std::string& activation, const std::string& init,
+                    const std::string& dtype = "float32") {
         if (built_) throw std::runtime_error("cannot add layers after build()");
         if (has_output())
             throw std::runtime_error("hidden layers must be added before the output layer");
         Spec s;
         s.width = require_positive(width, "width");
         s.in = resolve_input_size(input_size);
-        s.a = lookup_activation(activation, "a hidden layer");
-        s.init = lookup_init(init);
+        s.dtype = core::parse_dtype(dtype);
+        // Resolve the names against the tables for the requested dtype now, so
+        // a bad name raises at add time rather than at build().
+        if (s.dtype == core::DType::float32) {
+            (void)lookup_activation<float>(activation, "a hidden layer");
+            (void)lookup_init<float>(init);
+        } else {
+            (void)lookup_activation<double>(activation, "a hidden layer");
+            (void)lookup_init<double>(init);
+        }
         // Hidden layers never use their loss function; the engine stores one anyway.
-        s.l = los::mse;
-        s.is_output = false;
         s.act_name = activation;
         s.init_name = init;
+        s.is_output = false;
         specs_.push_back(s);
     }
 
     void add_output(int width, std::optional<int> input_size,
                     const std::string& activation, const std::string& loss,
-                    const std::string& init) {
+                    const std::string& init, const std::string& dtype = "float32") {
         if (built_) throw std::runtime_error("cannot add layers after build()");
         if (has_output())
             throw std::runtime_error(
@@ -204,9 +229,16 @@ public:
         Spec s;
         s.width = require_positive(width, "width");
         s.in = resolve_input_size(input_size);
-        s.a = lookup_activation(activation, "the output layer");
-        s.l = lookup_loss(loss);
-        s.init = lookup_init(init);
+        s.dtype = core::parse_dtype(dtype);
+        if (s.dtype == core::DType::float32) {
+            (void)lookup_activation<float>(activation, "the output layer");
+            (void)lookup_loss<float>(loss);
+            (void)lookup_init<float>(init);
+        } else {
+            (void)lookup_activation<double>(activation, "the output layer");
+            (void)lookup_loss<double>(loss);
+            (void)lookup_init<double>(init);
+        }
         s.is_output = true;
         s.act_name = activation;
         s.loss_name = loss;
@@ -221,11 +253,31 @@ public:
         int n_hidden = 0;
         for (const auto& s : specs_) if (!s.is_output) ++n_hidden;
 
-        net_ = std::make_unique<core::Network>(n_hidden, 1, lr_, batch_);
+        // The network's IO dtype is always float32; the layers pick their own.
+        net_ = std::make_unique<core::Network<float>>(n_hidden, 1, lr_, batch_);
         int idx = 0;
         for (const auto& s : specs_) {
-            if (s.is_output) net_->addOutputLayer(0,      s.width, s.in, s.a, s.init, s.l);
-            else             net_->addHiddenLayer(idx++,  s.width, s.in, s.a, s.init, s.l);
+            // Dispatch on the layer's dtype; the engine's add* methods then
+            // validate that dtype against the function pointers' scalar type.
+            if (s.dtype == core::DType::float32) {
+                if (s.is_output)
+                    net_->addOutputLayer<float>(0, s.width, s.in, s.dtype,
+                        lookup_activation<float>(s.act_name, "the output layer"),
+                        lookup_init<float>(s.init_name), lookup_loss<float>(s.loss_name));
+                else
+                    net_->addHiddenLayer<float>(idx++, s.width, s.in, s.dtype,
+                        lookup_activation<float>(s.act_name, "a hidden layer"),
+                        lookup_init<float>(s.init_name), los::mse<float>);
+            } else {
+                if (s.is_output)
+                    net_->addOutputLayer<double>(0, s.width, s.in, s.dtype,
+                        lookup_activation<double>(s.act_name, "the output layer"),
+                        lookup_init<double>(s.init_name), lookup_loss<double>(s.loss_name));
+                else
+                    net_->addHiddenLayer<double>(idx++, s.width, s.in, s.dtype,
+                        lookup_activation<double>(s.act_name, "a hidden layer"),
+                        lookup_init<double>(s.init_name), los::mse<double>);
+            }
         }
         net_->initializeAllWeightsAndBiases();
         built_ = true;
@@ -238,7 +290,9 @@ public:
         std::vector<float> in = to_vec(x, "x");
         check_len(in.size(), static_cast<size_t>(specs_.front().in), "x", "the first layer's input_size");
         net_->forwardPass(in.data());
-        return to_numpy(output_layer()->neuronOutputsActivated);
+        std::vector<float> out(static_cast<size_t>(output_layer()->layerWidth));
+        output_layer()->copyActivatedOutputsTo(out.data());
+        return to_numpy(out);
     }
 
     void zero_gradients() { require_built(); net_->zeroAllGradients(); }
@@ -367,9 +421,10 @@ public:
 
     // Overwrite a layer's parameters. Needed to walk the network away from its
     // trained point and back again (loss landscapes), and to restore a model
-    // whose weights were saved elsewhere.
+    // whose weights were saved elsewhere. Values cross the float32 IO boundary
+    // and are converted into the layer's own dtype inside the engine.
     void set_weights(int layer, const py::object& values) {
-        core::Layer* l = layer_at(layer);
+        core::LayerBase* l = layer_at(layer);
         Arr a = Arr::ensure(values);
         if (!a) throw std::invalid_argument("weights must be an array of numbers");
         if (a.ndim() != 1 && a.ndim() != 2)
@@ -381,17 +436,17 @@ public:
                 "layer " + std::to_string(layer) + " holds " + std::to_string(want) +
                 " weights (" + std::to_string(l->layerWidth) + "x" +
                 std::to_string(l->inputSize) + "), got " + std::to_string(a.size()));
-        std::copy(a.data(), a.data() + a.size(), l->neuronWeights.begin());
+        l->copyWeightsFrom(a.data());
     }
 
     void set_biases(int layer, const py::object& values) {
-        core::Layer* l = layer_at(layer);
+        core::LayerBase* l = layer_at(layer);
         std::vector<float> b = to_vec(values, "biases");
         if (b.size() != static_cast<size_t>(l->layerWidth))
             throw std::invalid_argument(
                 "layer " + std::to_string(layer) + " holds " +
                 std::to_string(l->layerWidth) + " biases, got " + std::to_string(b.size()));
-        std::copy(b.begin(), b.end(), l->neuronBiases.begin());
+        l->copyBiasesFrom(b.data());
     }
 
     // -------- introspection
@@ -415,6 +470,7 @@ public:
             d["input_size"] = s.in;
             d["activation"] = s.act_name;
             d["init"]       = s.init_name;
+            d["dtype"]      = core::dtype_name(s.dtype);
             if (s.is_output) d["loss"] = s.loss_name;
             out.append(d);
         }
@@ -422,12 +478,17 @@ public:
     }
 
     py::array_t<float> weights(int layer) const {
-        const core::Layer* l = layer_at(layer);
+        const core::LayerBase* l = layer_at(layer);
         py::array_t<float> out({l->layerWidth, l->inputSize});
-        std::copy(l->neuronWeights.begin(), l->neuronWeights.end(), out.mutable_data());
+        l->copyWeightsTo(out.mutable_data());
         return out;
     }
-    Arr biases(int layer) const { return to_numpy(layer_at(layer)->neuronBiases); }
+    Arr biases(int layer) const {
+        const core::LayerBase* l = layer_at(layer);
+        Arr out(static_cast<py::ssize_t>(l->layerWidth));
+        l->copyBiasesTo(out.mutable_data());
+        return out;
+    }
 
     double learning_rate() const {
         return static_cast<double>(built_ ? net_->learningRate : lr_);
@@ -450,7 +511,12 @@ public:
         os << "<gradiex.Network lr=" << learning_rate() << " batch=" << batch_size();
         if (specs_.empty()) { os << " (no layers)>"; return os.str(); }
         os << " " << specs_.front().in;
-        for (const auto& s : specs_) os << " -> " << s.width << "[" << s.act_name << "]";
+        for (const auto& s : specs_) {
+            os << " -> " << s.width << "[" << s.act_name;
+            if (s.dtype != core::DType::float32)
+                os << "/" << core::dtype_name(s.dtype);
+            os << "]";
+        }
         if (has_output()) os << " loss=" << specs_.back().loss_name;
         os << (built_ ? "" : " (not built)") << ">";
         return os.str();
@@ -459,9 +525,7 @@ public:
 private:
     struct Spec {
         int width = 0, in = 0;
-        act::ActivationFunction a = nullptr;
-        los::LossFunction l = nullptr;
-        ini::initFunction init = nullptr;
+        core::DType dtype = core::DType::float32;
         bool is_output = false;
         std::string act_name, loss_name, init_name;
     };
@@ -491,9 +555,9 @@ private:
     void require_built() const {
         if (!built_) throw std::runtime_error("call build() before using the network");
     }
-    core::OutputLayer* output_layer() const { return net_->outputLayers[0]; }
+    core::LayerBase* output_layer() const { return net_->outputLayers[0]; }
 
-    core::Layer* layer_at(int i) const {
+    core::LayerBase* layer_at(int i) const {
         require_built();
         int nh = net_->numHiddenLayers;
         if (i < 0) i += nh + 1;
@@ -515,7 +579,7 @@ private:
     }
 
     std::vector<Spec> specs_;
-    std::unique_ptr<core::Network> net_;
+    std::unique_ptr<core::Network<float>> net_;
     float lr_ = 0.01f;
     int batch_ = 1;
     bool built_ = false;
@@ -527,7 +591,7 @@ private:
 // and layers the matplotlib plotting on top.
 PYBIND11_MODULE(_core, m) {
     m.doc() = "GradieX -- a dependency-free feedforward neural network engine in C++.";
-    m.attr("__version__") = py::str("0.0.3");
+    m.attr("__version__") = py::str("0.0.4");
     m.attr("__author__") = py::str("Snehashish Laskar");
     m.attr("__dtype__") = py::str("float32");
 
@@ -537,19 +601,22 @@ PYBIND11_MODULE(_core, m) {
 
     m.def("activations", []{
         std::vector<std::string> v;
-        for (const auto& kv : activations()) v.push_back(kv.first);
+        for (const auto& kv : activations<float>()) v.push_back(kv.first);
         return v;
     }, "Names accepted by the `activation` argument.");
     m.def("losses", []{
         std::vector<std::string> v;
-        for (const auto& kv : losses()) v.push_back(kv.first);
+        for (const auto& kv : losses<float>()) v.push_back(kv.first);
         return v;
     }, "Names accepted by the `loss` argument.");
     m.def("initializers", []{
         std::vector<std::string> v;
-        for (const auto& kv : initializers()) v.push_back(kv.first);
+        for (const auto& kv : initializers<float>()) v.push_back(kv.first);
         return v;
     }, "Names accepted by the `init` argument.");
+    m.def("dtypes", []{
+        return std::vector<std::string>{"float32", "float64"};
+    }, "Scalar types accepted by the `dtype` argument of add_hidden()/add_output().");
 
     py::class_<Network>(m, "Network", R"doc(
 A feedforward network.
@@ -566,8 +633,13 @@ Layers are declared, then built:
 
 train() runs entirely inside the C++ engine: the epoch loop, the shuffle, the
 mini-batching, gradient accumulation and the SGD update are all engine code, so
-training from Python is the same code path as training from main.cpp. The engine
-is float32 throughout; float64 input is accepted and cast on the way in.
+training from Python is the same code path as training from main.cpp. The
+network's IO is float32 throughout; float64 input is accepted and cast on the
+way in.
+
+Each layer picks its own scalar type with the `dtype` argument
+("float32" or "float64"): one hidden layer may compute in double while the rest
+of the network stays float32, and the engine converts at the layer boundaries.
 
 batch_size is the number of samples whose gradients are accumulated before one
 update: 1 is per-sample SGD, 0 means one batch per epoch (full batch).
@@ -577,11 +649,13 @@ update: 1 is per-sample SGD, 0 means one batch per epoch (full batch).
         .def("add_hidden", &Network::add_hidden,
              py::arg("width"), py::arg("input_size") = std::nullopt,
              py::arg("activation") = "relu", py::arg("init") = "he",
-             "Append a hidden layer. input_size defaults to the previous layer's width.")
+             py::arg("dtype") = "float32",
+             "Append a hidden layer. input_size defaults to the previous layer's width; "
+             "dtype is the scalar type the layer computes in (float32 or float64).")
         .def("add_output", &Network::add_output,
              py::arg("width"), py::arg("input_size") = std::nullopt,
              py::arg("activation") = "sigmoid", py::arg("loss") = "mse",
-             py::arg("init") = "he",
+             py::arg("init") = "he", py::arg("dtype") = "float32",
              "Add the output layer. Must be called once, after all hidden layers.")
         .def("build", &Network::build, "Construct the engine and initialize weights.")
         .def("initialize", &Network::build, "Alias for build().")
@@ -610,7 +684,7 @@ update: 1 is per-sample SGD, 0 means one batch per epoch (full batch).
         .def("evaluate", &Network::evaluate, py::arg("X"), py::arg("Y"),
              "Mean loss over a dataset, computed in the engine. No update is applied.")
         .def("weights", &Network::weights, py::arg("layer"),
-             "Weights of a layer as a (width, input_size) array. Negative indices allowed.")
+             "Weights of a layer as a (width, input_size) float32 array. Negative indices allowed.")
         .def("biases", &Network::biases, py::arg("layer"), "Biases of a layer.")
         .def("set_weights", &Network::set_weights, py::arg("layer"), py::arg("values"),
              "Overwrite a layer's weights. Accepts (width, input_size) or flat.")
@@ -624,6 +698,6 @@ update: 1 is per-sample SGD, 0 means one batch per epoch (full batch).
         .def_property_readonly("built", &Network::is_built)
         .def_property_readonly("layers", &Network::layer_specs,
              "One dict per layer in forward order: kind, width, input_size, "
-             "activation, init, and loss on the output layer.")
+             "activation, init, dtype, and loss on the output layer.")
         .def("__repr__", &Network::repr);
 }

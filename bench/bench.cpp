@@ -52,7 +52,7 @@
 #  include "../core/network.h"
    using Scalar = float;
    static const char* kVersion = "0.0.3";
-   using Net = core::Network;
+   using Net = core::Network<>;
 #endif
 
 #ifndef BENCH_V1
@@ -143,7 +143,7 @@ static Net* buildNetwork(const Arch& a) {
                             los::mse, los::mseDerivative);
 #  else
         net->addHiddenLayer(static_cast<int>(i), a.hidden[i], prev,
-                            act::relu, ini::he, los::mse);
+                            act::relu<float>, ini::he<float>, los::mse<float>);
 #  endif
         prev = a.hidden[i];
     }
@@ -151,7 +151,7 @@ static Net* buildNetwork(const Arch& a) {
     net->addOutputLayer(0, a.outputSize, prev, act::sigmoid, act::sigmoidDerivative,
                         ini::he, los::mse, los::mseDerivative);
 #  else
-    net->addOutputLayer(0, a.outputSize, prev, act::sigmoid, ini::he, los::mse);
+    net->addOutputLayer(0, a.outputSize, prev, act::sigmoid<float>, ini::he<float>, los::mse<float>);
 #  endif
     net->initializeAllWeightsAndBiases();
     return net;

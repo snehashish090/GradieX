@@ -9,7 +9,8 @@ touches Python: :meth:`Network.train` hands the whole dataset to
 
     gradiex.seed(42)                       # reproducible weight init
     net = gradiex.Network(learning_rate=0.5, batch_size=4)
-    net.add_hidden(8, input_size=2, activation="tanh", init="xavier")
+    net.add_hidden(8, input_size=2, activation="tanh", init="xavier",
+                   dtype="float64")        # this hidden layer computes in double
     net.add_output(1, activation="sigmoid", loss="mse")
     net.build()
 
@@ -20,7 +21,7 @@ touches Python: :meth:`Network.train` hands the whole dataset to
 from __future__ import annotations
 
 from . import _core
-from ._core import activations, initializers, losses, seed
+from ._core import activations, dtypes, initializers, losses, seed
 
 from .plotting import (
     THEMES,
@@ -41,6 +42,7 @@ __dtype__ = _core.__dtype__
 __all__ = [
     "Network",
     "activations",
+    "dtypes",
     "losses",
     "initializers",
     "seed",

@@ -10,6 +10,7 @@ on:
     paths:
       - "core/**"
       - "python/**"
+      - "gradiex/**"
       - "setup.py"
       - "pyproject.toml"
       - ".github/workflows/release.yml"

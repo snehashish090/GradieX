@@ -15,22 +15,33 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/snehashish090/GradieX/blob/main/LICENSE)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C.svg)](https://en.cppreference.com/w/cpp/20)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-3776AB.svg)](https://www.python.org/)
-[![Version](https://img.shields.io/badge/version-0.0.3-orange.svg)](https://github.com/snehashish090/GradieX/blob/main/CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.0.4-orange.svg)](https://github.com/snehashish090/GradieX/blob/main/CHANGELOG.md)
 
 </div>
 
 
-**v0.0.3 is the single-precision line.** The architecture is v0.0.2's — a network of
-layers, each holding its weights in one flat contiguous buffer — but every scalar is
-`float` rather than `double`, the hot loops carry `#pragma omp simd`, and the training
-step accumulates gradients over a mini-batch instead of updating after every sample.
+**v0.0.4 is the templated line.** The architecture is v0.0.2's — a network of
+layers, each holding its weights in one flat contiguous buffer — and v0.0.3's
+single-precision hot loops, but every scalar type is now a template parameter:
+activations, losses and initializers are function templates on `T`,
+`Layer<T>`/`HiddenLayer<T>`/`OutputLayer<T>` compute entirely in `T`, and
+`Network<IO>` (default `float`) is the type-erased container that stitches them
+together.
+
+**Each layer picks its own data type.** A layer's constructor takes a `DType`
+(`float32` / `float64`) next to its function pointers, and the network validates
+that the two agree. Adjacent layers may differ — a `float64` hidden layer can sit
+inside a `float32` network — and the engine converts at every boundary. The
+network's IO stays `float32`, so the Python contract is unchanged; only the
+layer internals move precision.
 
 Training lives in the engine. The Python `train()` is one call into
 `core::Network::train`: the epoch loop, the shuffle, the batching, gradient
 accumulation and the update rule are all C++, with the GIL released. A 4000-epoch XOR
 run through Python is bit-identical to the same run from `main.cpp`.
 
-New in v0.0.3: per-epoch shuffling, seeded weight initialisation, a derivative lookup
+New in v0.0.4: a templated engine with per-layer data types. Carried over from
+v0.0.3: per-epoch shuffling, seeded weight initialisation, a derivative lookup
 that ties each activation and loss to its own derivative, and a
 [matplotlib plotting layer](#plots) — loss curves, architecture diagrams, decision
 boundaries, weight maps and 3-D loss landscapes.
@@ -57,6 +68,7 @@ print(net.predict([1., 0.]))                # [0.9838] (float32)
 
 ## Contents
 
+- [What's new in v0.0.4](#whats-new-in-v004)
 - [What's new in v0.0.3](#whats-new-in-v003)
 - [Memory Architecture](#memory-architecture)
 - [Install](#install)
@@ -77,6 +89,39 @@ print(net.predict([1., 0.]))                # [0.9838] (float32)
 - [Roadmap](#roadmap)
 - [Contributing](#contributing)
 - [License](#license)
+
+---
+
+## What's new in v0.0.4
+
+| | v0.0.3 | v0.0.4 |
+|---|---|---|
+| Scalars | `float` everywhere | **templated** — `Layer<T>`, `Network<IO = float>` |
+| Activations / losses / initializers | `float*` function pointers | **`template <typename T>` functions** — one kernel per scalar type |
+| Layer data type | uniform across the network | **per layer**, via a `DType` constructor argument |
+| Mixed precision | impossible | **any mix of `float32`/`float64` layers**, converted at each boundary |
+| Mismatched dtype + functions | not expressible | **rejected at construction** with `std::invalid_argument` |
+| Derivative validation | Python binding only | **also in `Network::addHiddenLayer` / `addOutputLayer`** |
+| Network copying | implicitly possible — double-frees | **deleted** |
+| Python API | `add_hidden(width, ..., activation, init)` | `add_hidden(..., dtype="float32")`, `gradiex.dtypes()`, `dtype` in `net.layers` |
+
+The templating is a pure refactor on the float32 path: a network whose layers all
+declare `DType::float32` runs the same hot loops v0.0.3 ran, with the same
+zero-allocation forward/backward passes. The only new work appears where you ask for
+it — a layer that disagrees with its neighbour converts at the boundary.
+
+```python
+# a float64 hidden layer inside a float32 network
+net.add_hidden(16, input_size=2, activation="tanh", init="xavier", dtype="float64")
+```
+
+```cpp
+// the same, in C++: the DType argument must agree with the function pointers' type
+net.addHiddenLayer(0, 16, 2, core::DType::float64,
+                   core::functions::activations::tanh<double>,
+                   core::functions::initializers::xavier<double>,
+                   core::functions::loss::mse<double>);
+```
 
 ---
 
@@ -109,58 +154,59 @@ loss already down at 0.003. The guard is `1e-7f` now, and five regression tests 
 
 Three ideas, in order of how much they matter.
 
-### 1. Flattened layout
+### 1. Flattened layout, per layer
 
-All weights of all layers live in a single `std::vector<double>` (`weights_`), and
-all biases in a second (`biases_`). A layer does not own anything; it stores an
-`offset` into each buffer, plus its `width` and `fan_in`. Reading the weight matrix
-of layer $l$ is a pointer plus an offset, not a walk through $W$ separate
-allocations:
+Every layer owns its buffers, and each buffer is one flat, contiguous vector in the
+layer's scalar type `T`. A layer of width $n$ fed by `inputSize` inputs stores its
+weight matrix as a flat `n × inputSize` array (`neuronWeights`), neuron $i$'s row at
+`i * inputSize`:
 
 ```cpp
 // layer l, neuron i, input j
-weights_[layer.offset_w + i * layer.fan_in + j]
+neuronWeights[i * inputSize + j]      // w^{(l)}_{ij}
 ```
 
-This makes the weight update a single linear sweep over one contiguous array, which
-the prefetcher handles well. It also makes the whole model serializable as two
-`memcpy`s when save/load returns.
+Biases, pre-activations, activations, deltas, weight gradients and bias gradients
+are each one flat per-layer vector, all sized once in the constructor. There is no
+`vector<vector<T>>` anywhere: a nested vector means one heap allocation per neuron
+and a cache-hostile strided walk.
 
-The same trick is used for the per-neuron caches. `z_cache_`, `a_cache_`,
-`input_cache_`, `delta_`, `grad_w_`, and `grad_b_` are each **one flat buffer** whose
-offsets mirror the weight buffer, so a neuron's pre-activation and its weights sit at
-corresponding indices.
+The same trick covers the working buffers. `layerInputs`, `scratchPad1`,
+`scratchPad2` and — for mixed-dtype layers — the boundary-conversion scratch
+(`nextDeltaScratch_`, `nextWeightScratch_`, `targetScratch_`) are each one flat
+per-layer vector whose size is fixed by the layer geometry.
 
 ### 2. Zero heap allocations on the hot path
 
-Everything a forward or backward pass needs is sized at `build()` time and never
-reallocated. The buffers are:
+Everything a forward or backward pass needs is sized at construction time and never
+reallocated:
 
 | Buffer | Size | Purpose |
 |---|---|---|
-| `weights_` | $\sum_l W_l \cdot W_{l-1}$ | all weight matrices, layer-contiguous |
-| `biases_` | $\sum_l W_l$ | all bias vectors |
-| `z_cache_` | $\sum_l W_l$ | pre-activations, per layer |
-| `a_cache_` | $\sum_l W_l$ | activations, per layer |
-| `input_cache_` | $\sum_l W_l \cdot W_{l-1}$ | input seen by each neuron on the last forward pass |
-| `delta_` | $\sum_l W_l$ | local gradients |
-| `grad_w_` | $\sum_l W_l \cdot W_{l-1}$ | accumulated weight gradients |
-| `grad_b_` | $\sum_l W_l$ | accumulated bias gradients |
+| `neuronWeights` | $n \cdot m$ | weight matrix, one row per neuron |
+| `neuronBiases` | $n$ | bias per neuron |
+| `layerInputs` | $m$ | the input from the last forward pass, in this layer's dtype |
+| `neuronOutputsUnactivated` / `neuronOutputsActivated` | $n$ | $z$ and $a$, per neuron |
+| `neuronDeltas` | $n$ | local gradients $\delta$ |
+| `neuronWeightGradients` / `neuronBiasGradients` | $n \cdot m$ / $n$ | accumulated gradients |
+| `scratchPad1` / `scratchPad2` | $n$ | derivative outputs during `computeErrorSignal` |
+| conversion scratch | varies | foreign-dtype activations/deltas/weights/targets, resized once |
 
-`forward()`, `backward()`, and the SGD step touch only these. A debug counter
-asserts zero `operator new` calls between `build()` and destruction; the test suite
-checks it.
+`calculateOutputs`, `computeGradients` and the SGD step touch only these. Mixed-
+dtype layers pay one conversion pass over the crossing buffers per boundary — the
+conversion scratch is allocated on the first use and reused from then on, so the
+steady-state hot path stays allocation-free.
 
 ### 3. SIMD pragmas
 
-v0.0.2 unrolled the inner dot product by hand into four accumulators. v0.0.3 asks the
-compiler instead:
+v0.0.2 unrolled the inner dot product by hand into four accumulators. The engine now
+asks the compiler instead:
 
 ```cpp
 for (int neuron = 0; neuron < width; ++neuron)
 {
-    const float* __restrict__ w = neuronWeights + neuron * inputSize;
-    float sum = 0.0f;
+    const T* __restrict__ w = neuronWeights + neuron * inputSize;
+    T sum = static_cast<T>(0);
     #pragma omp simd reduction(+:sum)
     for (int inputIdx = 0; inputIdx < inputSize; ++inputIdx)
         sum += w[inputIdx] * layerInputs[inputIdx];
@@ -168,15 +214,17 @@ for (int neuron = 0; neuron < width; ++neuron)
 }
 ```
 
-The same directive covers zeroing, scaling and applying gradients. `__restrict__`
-pointers are established before each loop so the compiler knows the buffers do not
-alias.
+The same directive covers zeroing, scaling and applying gradients, the boundary
+conversions, and every activation and loss. `__restrict__` pointers are established
+before each loop so the compiler knows the buffers do not alias.
 
-> **This only does something if OpenMP is enabled.** Built without `-fopenmp`,
-> `#pragma omp simd` is accepted and discarded in silence — no error, no warning, not
-> even under `-Wall -Wextra`. Apple clang, the default `c++` on macOS, rejects
-> `-fopenmp` outright, so the stock macOS build gets whatever the optimiser would
-> have done anyway. Use `g++-14` or LLVM clang with libomp to act on them.
+> **This only does something if OpenMP is enabled.** Built without
+> `-fopenmp-simd`, `#pragma omp simd` is accepted and discarded in silence — no
+> error, no warning, not even under `-Wall -Wextra`. Apple clang rejects
+> `-fopenmp` (the flag the docs usually name) but accepts **`-fopenmp-simd`**,
+> which enables exactly the SIMD directives and needs no runtime library — and
+> `core/` uses nothing else, no parallel regions. That is the flag to reach for on
+> macOS; `./tests/run_tests.sh --simd` exercises it.
 
 ## Install
 
@@ -249,8 +297,8 @@ namespace los = core::functions::loss;
 
 ini::setSeed(42);
 core::Network net(1, 1, 0.5f, 4);           // 1 hidden, 1 output, lr, batch size
-net.addHiddenLayer(0, 8, 2, act::tanh,    ini::xavier, los::mse);
-net.addOutputLayer(0, 1, 8, act::sigmoid, ini::xavier, los::mse);
+net.addHiddenLayer(0, 8, 2, act::tanh<float>,    ini::xavier<float>, los::mse<float>);
+net.addOutputLayer(0, 1, 8, act::sigmoid<float>, ini::xavier<float>, los::mse<float>);
 net.initializeAllWeightsAndBiases();
 
 std::vector<float> history(4000);
@@ -263,7 +311,7 @@ layer resolves each from its forward function, so a mismatched pair is unreachab
 
 ## Plots
 
-`0.0.3/examples/two_moons.py` trains a `2 → 16 → 16 → 1` network on two interleaving
+`examples/two_moons.py` trains a `2 → 16 → 16 → 1` network on two interleaving
 moons — a curved boundary, so the hidden layers have to do real work — and writes
 every diagram below. It reaches 100 % train and test accuracy.
 
@@ -315,8 +363,8 @@ accumulated before one update: `1` is per-sample SGD, `0` means one batch per ep
 
 | method | description |
 |---|---|
-| `add_hidden(width, input_size=None, activation="relu", init="he")` | Append a hidden layer. `input_size` defaults to the previous layer's width, and is required only on the first layer. |
-| `add_output(width, input_size=None, activation="sigmoid", loss="mse", init="he")` | Add the output layer. Call once, after all hidden layers. |
+| `add_hidden(width, input_size=None, activation="relu", init="he", dtype="float32")` | Append a hidden layer. `input_size` defaults to the previous layer's width, and is required only on the first layer. `dtype` is the scalar type the layer computes in (`float32` or `float64`). |
+| `add_output(width, input_size=None, activation="sigmoid", loss="mse", init="he", dtype="float32")` | Add the output layer. Call once, after all hidden layers. |
 | `build()` | Construct the engine, size every buffer, and initialize weights. Alias: `initialize()`. |
 | `train(X, Y, epochs=100, shuffle=False, seed=None, verbose=False, log_every=0, plot=False)` | Runs in the engine. Returns mean loss per epoch, and stores it on `.history`. |
 | `train_batch(X, Y)` | One engine batch step over these samples. Returns the mean batch loss. |
@@ -340,8 +388,18 @@ Properties: `learning_rate` and `batch_size` (writable), `layers`, `num_hidden`,
 Module level: `gradiex.seed(n)` seeds weight initialisation, `gradiex.THEMES` holds
 the two palettes.
 
-Inputs accept anything NumPy can cast to `float32`. The engine is single-precision, so
-`net.learning_rate` reads back rounded — setting `0.05` returns `0.05000000074505806`.
+Inputs accept anything NumPy can cast to `float32` — the network's IO dtype is
+always `float32`, whatever the layers do internally. The learning rate is stored as
+`float32`, so `net.learning_rate` reads back rounded — setting `0.05` returns
+`0.05000000074505806`.
+
+Each layer picks its own scalar type with the `dtype` argument of `add_hidden()` /
+`add_output()`: `"float32"` (the default) or `"float64"`. A `float64` hidden layer
+inside a `float32` network computes its activations and gradients in double, and the
+engine converts at the layer boundaries — float32 in and out, higher precision where
+you asked for it. `net.layers` reports each layer's `dtype`, and `gradiex.dtypes()`
+lists the choices. The layer's `weights()` / `biases()` still cross the boundary as
+`float32` arrays.
 
 ### Names
 
@@ -349,6 +407,7 @@ Inputs accept anything NumPy can cast to `float32`. The engine is single-precisi
 gradiex.activations()   # gelu, identity, leaky_relu, linear, relu, sigmoid, softmax, swish, tanh
 gradiex.losses()        # mse, mae, huber, bce, binary_cross_entropy, cce, cross_entropy, softmax_cross_entropy
 gradiex.initializers()  # zeros, xavier, he
+gradiex.dtypes()        # float32, float64
 ```
 
 Activations and losses are selected by name. The engine resolves each derivative from
@@ -368,21 +427,19 @@ collects layer specs first and constructs `core::Network` only in `build()`, so 
 states are unreachable — every one of these raises a Python exception instead:
 
 - an out-of-range layer index, or unfilled layer slots at initialization
-- a mismatched activation / derivative pair
-- `softmax`, which has no derivative implemented in the engine yet
-- more than one output layer — `backwardPass` propagates gradients from
+- an activation the engine cannot differentiate (e.g. `softmax`), or a loss without
+  a registered derivative
+- a `dtype` argument that is not one of `float32` / `float64`
+- more than one output layer — `accumulateGradients` propagates from
   `outputLayers[0]` only, so a second output layer would train silently wrong
 - a layer chain whose shapes don't connect
 - input or target vectors of the wrong length
 - using the network before `build()`, or adding layers after it
 
-Two places where the Python layer deliberately differs from the C++ engine:
-
-- **Loss reporting.** `core::Network::computeLoss` sums squared error regardless of
-  which loss is configured. `Network.loss()` and `train()` use the configured loss.
-- **`train()`** is implemented in the binding rather than calling
-  `core::Network::train`, so it can return per-epoch history, shuffle with a seed,
-  and stay quiet unless `verbose=True`.
+The layer also validates names against the tables *for the requested dtype* at
+`add_*` time — so a misspelled activation raises on the call that made it, not later
+at `build()`. The dtype argument and the function pointers are additionally checked
+against each other inside the engine, so the two can never disagree.
 
 ## Notation
 
@@ -444,7 +501,7 @@ a scalar-in / scalar-out function. The softmax Jacobian is a dense $n \times n$
 matrix, which that signature cannot express. `fetchAssociatedDerivative` therefore
 returns `nullptr` for `softmax` on purpose, and the binding refuses it.
 
-The fused path **is** reachable in v0.0.3, though not through that activation. Pair
+The fused path **is** reachable, though not through that activation. Pair
 `identity` with `softmax_cross_entropy`: the loss derivative consumes the logits and
 returns $\mathrm{softmax}(z) - y$ directly, and $\mathrm{identity}'(z) = 1$ leaves it
 untouched, so the delta is exactly the fused form. `predict()` then returns logits
@@ -489,8 +546,8 @@ confident wrong answer costs a large finite number rather than $\infty$.
 
 ### Forward
 
-`forward_pass()` carries one vector through the network, reassigning it at each
-layer, so layer $l$'s output vector **is** layer $l+1$'s input vector:
+`forwardPass()` carries one buffer through the network, reassigning it at each layer,
+so layer $l$'s output vector **is** layer $l+1$'s input vector:
 
 $$
 \mathbf{z}^{(l)} = W^{(l)}\mathbf{a}^{(l-1)} + \mathbf{b}^{(l)}
@@ -505,9 +562,9 @@ $$
 z_i^{(l)} = \sum_j w_{ij}^{(l)} a_j^{(l-1)} + b_i^{(l)}
 $$
 
-Each neuron's input is written into the flat `input_cache_` at the offset
-corresponding to its weight row; the backward pass needs it, and it is gone once the
-next forward pass runs.
+Each layer caches its own input in `layerInputs` — converted into the layer's dtype
+first, when the previous layer differs. The backward pass needs that vector, and it
+is gone once the next forward pass runs.
 
 ### Backward
 
@@ -534,15 +591,17 @@ The bias gradient equals the local gradient because a bias's input is always $1$
 Step 3 is the transpose of the weight matrix, and it must read $w_{ij}^{(l)}$
 **before** the weights are updated — see [Invariants](#invariants).
 
-In the flat layout, step 2 is a single loop over `grad_w_` and step 3 is a single
-loop over `weights_` in the same layer block, so both read contiguous memory. The
-transpose in step 3 is the one place the access pattern is not sequential, which is
-why the inner loop there is the least unrolled of the three.
+In the flat layout, step 2 is a single loop over `neuronWeightGradients` and step 3
+walks the next layer's weight rows, so both read contiguous memory. The transpose in
+step 3 is the one place the access pattern is not sequential. In a mixed-dtype
+network, step 3 starts by converting the next layer's deltas and weights into this
+layer's dtype — one pass over the crossing buffers, into reused scratch.
 
 ## Training
 
-Per-sample SGD, one update per row, in the order the rows appear unless `shuffle` is
-set.
+Mini-batch SGD: gradients accumulate over `batch_size` samples, are scaled by
+$1/\text{batchSize}$, then applied once. `batch_size=1` is per-sample SGD, `0` means
+one batch per epoch.
 
 | `train()` argument | Default | Meaning |
 |---|---|---|
@@ -558,11 +617,6 @@ $$
 w \;\leftarrow\; w - \eta\,\frac{\partial L}{\partial w}
 $$
 
-Because gradients accumulate but nothing else touches them, this is the $B = 1$ case
-of the batch update v0.0.1 used. Mini-batching is not in this release; the flattened
-`grad_w_` / `grad_b_` buffers are already sized and zeroed the way a batch
-implementation needs, so re-adding it is a loop change, not a layout change.
-
 Weights default to **He initialization**, $w \sim \mathcal{N}\!\left(0,\; 2 /
 n_{\text{in}}\right)$, biases start at $0$. `xavier` and `zeros` are also available.
 Inputs are assumed to be roughly unit-scale — unnormalized features train noticeably
@@ -570,9 +624,10 @@ worse, and there is no batch normalization in this release.
 
 ### Reproducibility
 
-Passing `seed` to `train()` fixes the shuffle order; passing it to the constructor is
-not yet supported. Weight initialization draws from a fixed default seed in this
-release. A test asserts that two runs with the same seed produce identical history.
+`gradiex.seed(n)` (equivalently `initializers::setSeed`) seeds the weight-initialisation
+RNG, and `seed=` on `train()` fixes the shuffle order. The two are separate, and both
+must be set for a bit-identical rerun. A test asserts that two runs with the same
+init seed and shuffle seed produce identical history.
 
 ## Using the C++ Engine Directly
 
@@ -581,36 +636,44 @@ release. A test asserts that two runs with the same seed produce identical histo
 ```cpp
 #include "core/network.h"
 
-core::Network net(1, 1, 0.05);
+core::Network net(1, 1, 0.05f);              // IO dtype is float32 by default
 net.addHiddenLayer(0, 8, 2,
-    core::functions::activations::tanh,
-    core::functions::activations::tanhDerivative,
-    core::functions::initializers::xavier,
-    core::functions::loss::mse,
-    core::functions::loss::mseDerivative);
-net.addOutputLayer(0, 1, 8, /* ... */);
+    core::DType::float32,                    // the layer's dtype, as a value
+    core::functions::activations::tanh<float>,
+    core::functions::initializers::xavier<float>,
+    core::functions::loss::mse<float>);
+net.addOutputLayer(0, 1, 8,
+    core::DType::float32,
+    core::functions::activations::sigmoid<float>,
+    core::functions::initializers::xavier<float>,
+    core::functions::loss::mse<float>);
 net.initializeAllWeightsAndBiases();
 ```
+
+The `DType` argument is optional — omit it and the dtype is implied by the function
+pointers' scalar type — but it is what makes a layer's precision a visible, runtime
+fact. Layers of different scalar types may be mixed; each converts incoming
+activations, deltas and weights into its own type at the boundary
+([`core/dtype.h`](https://github.com/snehashish090/GradieX/blob/main/core/dtype.h)).
+`core::Network<double>` exchanges `double` vectors with the caller for a fully
+double-precision pipeline.
 
 ```bash
 clang++ -std=c++20 -O2 main.cpp -o main
 ./tests/run_tests.sh            # add --asan for sanitizers
 ```
 
-Note that `tests/run_tests.sh` currently reports several failures by design — they
-are known bugs documented as executable specifications, each with a `FAIL_WITH_NOTE`
-explaining the fix.
-
-> **The C++ API is lower-level than the Python one, deliberately.** It does not
-> check that the activation and its derivative match, that shapes connect, or that
-> `build()` was called. The Python binding exists in part to make those states
-> unreachable. If you use `core/` directly, read
+> **The C++ API is lower-level than the Python one, deliberately.** `addHiddenLayer`
+> / `addOutputLayer` validate the dtype against the function pointers and refuse
+> activations/losses without a registered derivative, but they do not check that
+> shapes connect or that `build()` was called. The Python binding exists in part to
+> make those states unreachable. If you use `core/` directly, read
 > [Invariants](#invariants) first.
 
 ## Tests
 
 ```bash
-./tests/run_tests.sh               # C++ suite — 91 checks
+./tests/run_tests.sh               # C++ suite — 111 checks
 ./tests/run_tests.sh --asan        # with AddressSanitizer + UBSan
 ./tests/run_tests.sh --simd        # with -fopenmp-simd, so the pragmas apply
 ./tests/run_tests.sh Gradients     # only tests whose name contains "Gradients"
@@ -619,7 +682,7 @@ python3 python/test_bindings.py    # bindings, guards, C++/Python parity
 python3 python/test_plotting.py    # every diagram, headless (Agg)
 ```
 
-All 91 C++ checks pass in every mode: plain, `--asan`, `--simd`, and both together.
+All 111 C++ checks pass in every mode: plain, `--asan`, `--simd`, and both together.
 
 **Run it with `--simd` at least once before shipping.** The pragmas are discarded in
 silence without the flag, so a malformed one is invisible until something enables
@@ -631,9 +694,12 @@ child, so a crash is reported against one row of the table rather than ending th
 Reference values are computed in the test from the definitions, never captured from
 the implementation, so a failure means the code disagrees with the maths.
 
-Because the engine is `float32`, comparisons use a `1e-6` tolerance for hand-computed
-references and snapshot the buffer for "this did not change" — `0.7f != 0.7`, so a
-decimal literal would fail for the wrong reason.
+The float32 paths compare against hand-computed references with a `1e-6` tolerance,
+and snapshot buffers for "this did not change" — `0.7f != 0.7`, so a decimal literal
+would fail for the wrong reason. The v0.0.4 additions exercise the other side of the
+template: double-precision kernels are checked against double references, and the
+mixed-dtype tests pin a `float64` layer inside a `float32` network against an
+all-float reference run, one SGD step at a time.
 
 The v0.0.2 zero-allocation assertion was not ported; the flat layout it guarded is
 unchanged, but nothing currently asserts it.
@@ -642,13 +708,15 @@ unchanged, but nothing currently asserts it.
 
 Listed so the gap is explicit rather than discovered.
 
-| Feature | Status in v0.0.3 |
+| Feature | Status in v0.0.4 |
 |---|---|
 | Mini-batch training | **yes** — `Network(..., batch_size)` |
 | Per-epoch shuffling | **yes** — seeded, inside `train()` |
 | Seeded weight initialisation | **yes** — `gradiex.seed` / `initializers::setSeed` |
 | Fused softmax + categorical cross-entropy | **yes** — via `identity` + `softmax_cross_entropy` |
 | Multi-class output | **yes** — same pairing |
+| Templated scalars | **yes** — `Layer<T>`, `Network<IO>`, templated activations/losses/initializers |
+| Per-layer data types | **yes** — `DType::float32` / `DType::float64` per layer, mixed freely |
 | L2 weight decay | not yet |
 | Inverted dropout | not yet |
 | Train/validation split | not yet — but `train(epochs=1)` in a loop plus `evaluate()` gets you the curve |
@@ -665,51 +733,64 @@ a rewrite of every feature at once.
 Changing these silently breaks correctness.
 
 1. **Gradients accumulate; no weight moves until the update step.** This is what
-   makes mini-batching exact once it returns, and what guarantees that step 3 of the
-   backward pass, $\partial L / \partial a_j^{(l-1)} = \sum_i \delta_i^{(l)}
-   w_{ij}^{(l)}$, reads $w_{ij}^{(l)}$ *before* it is updated. Updating a layer's
-   weights before propagating through it corrupts every layer behind it.
-2. **`input_cache_` must hold the input from *this* forward pass.** Weight gradients
-   are meaningless against a stale cache.
-3. **The flat buffers and the layer offsets must agree.** `weights_` is indexed as
-   `layer.offset_w + i * layer.fan_in + j`; `grad_w_` uses the same layout. A layer
-   whose `offset_w` does not match the sum of the previous layers' sizes will read
-   the wrong weights and train plausibly and wrongly. Offsets are assigned once, in
-   `build()`, and never recomputed.
-4. **The unrolled loop's accumulator tree is fixed.** Four accumulators, summed as
-   `(s0 + s1) + (s2 + s3)`. Reordering them changes the floating-point result and
-   breaks bit-exact comparison against the numerical reference. Do not let the
-   compiler reassociate this loop.
-5. **No allocation between `build()` and destruction.** The zero-allocation test
-   enforces it. If a new buffer is needed, it is sized in `build()`.
-6. **`Activation` and `Loss` are enums on the hot path.** Strings are parsed once at
-   the API boundary; do not push a string comparison back into the per-neuron loops.
-7. **Softmax is not evaluable on its own.** Its Jacobian is a dense $n \times n$
-   matrix, which the scalar-in / scalar-out derivative signature cannot express, so
-   the derivative throws rather than return a wrong answer. The supported path will be
-   the fused one, $\partial L / \partial \mathbf{z} = \mathbf{p} - \mathbf{y}$, which
-   cancels the Jacobian and the $-y_i/p_i$ singularity exactly.
+   makes mini-batching exact once it returns, and what guarantees that the hidden
+   pass, $\partial L / \partial a_j^{(l-1)} = \sum_i \delta_i^{(l)} w_{ij}^{(l)}$,
+   reads $w_{ij}^{(l)}$ *before* it is updated. Updating a layer's weights before
+   propagating through it corrupts every layer behind it.
+2. **`layerInputs` must hold the input from *this* forward pass, in the layer's own
+   dtype.** Weight gradients are meaningless against a stale cache, and
+   `computeGradients()` assumes the cached vector was already converted from the
+   previous layer's dtype.
+3. **A layer's `DType` argument must agree with its template scalar type.** `Layer<T>`
+   and `Network::add*Layer` validate this and throw; a layer that skipped the check
+   would cast function pointers between types and compute garbage. Keep the check in
+   the constructor — it is the single choke point.
+4. **Boundary conversion happens exactly once, into the layer's own scratch.** A
+   layer receiving foreign-dtype activations, deltas, weights or targets converts
+   them via `core::convertFrom` before touching its buffers; do not reinterpret-cast
+   a foreign pointer as `T*`. Same-dtype boundaries take the plain copy path.
+5. **`fetchAssociatedDerivative` is the only place a function is paired with its
+   derivative.** Layers store the derivative resolved at construction; a null
+   derivative for a trainable role is rejected by `Network::add*Layer`. Adding an
+   activation or loss without registering its derivative here yields exactly that
+   null and a segfault on the first backward pass.
+6. **Softmax is not evaluable on its own.** Its Jacobian is a dense $n \times n$
+   matrix, which the scalar-in / scalar-out derivative signature cannot express. The
+   supported path is the fused one, $\partial L / \partial \mathbf{z} = \mathbf{p}
+   - \mathbf{y}$ (`identity` activation + `softmax_cross_entropy`), which cancels the
+   Jacobian and the $-y_i/p_i$ singularity exactly.
+7. **No allocation between `build()` and destruction on the steady-state hot path.**
+   Conversion scratch buffers (`nextDeltaScratch_`, `nextWeightScratch_`,
+   `targetScratch_`) resize once to their geometry and are reused from then on.
+8. **A `Network` owns its layers.** It is non-copyable for exactly this reason; a
+   memberwise copy would let two networks delete the same `LayerBase` pointers.
 
 ## Not Supported
 
 Optimizers other than plain SGD (no momentum, Adam, or LR schedule), L2 or dropout,
 train/validation split, early stopping, model save/load, a trainable softmax output,
-convolution, recurrence, GPU, or threading.
+convolution, recurrence, GPU, or threading. Data types beyond `float32`/`float64`
+(`half`, `bfloat16`) are not implemented either.
 
-Mini-batching, per-epoch shuffling and seeded initialisation **are** supported in
-v0.0.3. Vectorisation is requested through `#pragma omp simd` rather than written with
-intrinsics, so it is present only when the build enables OpenMP.
+Mini-batching, per-epoch shuffling, seeded initialisation, templated scalars and
+per-layer data types **are** supported in v0.0.4. Vectorisation is requested through
+`#pragma omp simd` rather than written with intrinsics, so it is present only when
+the build enables OpenMP.
 
-Three defects remain open: `std::expf` is not a standard name; only
-`outputLayers[0]` back-propagates, so extra output heads train silently wrong (the
-Python layer refuses to build them); and `Network` has a destructor but no copy
-constructor, so a copy double-frees.
+One defect remains open: only `outputLayers[0]` back-propagates, so extra output
+heads train silently wrong — the Python layer refuses to build them.
 
 ## Benchmarks
 
 Measured, not inherited. `bench/bench.cpp` drives both engines through one shared
 harness — same timing loop, same data, same architectures — so the comparison is
 identical by construction rather than by inspection.
+
+The tables below are v0.0.3's measured numbers. v0.0.4's float32 path is the same
+hot loop — the templating is a compile-time refactor, and a network whose layers all
+declare `DType::float32` behaves identically. The only new cost is opt-in: a mixed-
+dtype network converts at the boundaries where two layers disagree, one pass over
+the crossing buffers per sample.
 
 ```bash
 ./bench/run_bench.sh            # full matrix, CSV on stdout
@@ -790,19 +871,20 @@ in the matrix and the CSV, but there is nothing to report from it.
 
 ## Roadmap
 
-- **Mini-batching** — the flat `grad_w_` / `grad_b_` buffers are already batch-shaped
+- **More data types** — `half` / `bfloat16` layers ride the same `DType` +
+  conversion machinery as `float64`; they need kernels (or a promote-on-entry
+  fallback) and a dtype-aware Python boundary
 - **L2 weight decay** — one term in the update, no layout change
 - **Inverted dropout** — a mask buffer sized in `build()`, hidden layers only
-- **Fused softmax + categorical cross-entropy** — restores multi-class; needs the
-  layer-wide path back
-- **Model save/load** — the flat layout makes this two `memcpy`s plus a header
+- **Model save/load** — the flat layout makes this two `memcpy`s plus a header, and
+  `copyWeightsTo` / `copyWeightsFrom` already cross the dtype boundary
 - **Train/validation split and `TrainHistory`** — returns with the mini-batch loop
 - **Early stopping driven by `TrainHistory`**
-- **Seeded weight initialization from the constructor**
+- **Multiple output heads** — `accumulateGradients` currently propagates from
+  `outputLayers[0]` only
+- **Adam / momentum** — plain SGD is the current ceiling on hard problems
 - **SIMD inner loop** — hand-written, `-march=native` opt-in, compared against the
   scalar path for bit-exactness where possible
-- **Adam / momentum** — plain SGD is the current ceiling on hard problems
-- **Per-layer widths and dropout rates**
 
 See [TODO.md](https://github.com/snehashish090/GradieX/blob/main/TODO.md) for measured performance work in priority order.
 

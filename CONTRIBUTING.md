@@ -39,7 +39,7 @@ translation unit, and `python/gradiex_module.cpp` is the only other one — it
 
 ## Before you open a pull request
 
-1. **The suites pass.** `./tests/run_tests.sh` (91 checks across the two binaries) and
+1. **The suites pass.** `./tests/run_tests.sh` (111 checks across the two binaries) and
    the Python checks above — not just the ones near your change.
 2. **Zero compiler warnings** under `-Wall -Wextra`.
 3. **Clean under sanitizers**, which catches the out-of-bounds accesses a plain build
@@ -76,11 +76,14 @@ that pins it down; the full list of what is and is not covered is in the
 ## Invariants
 
 The README maintains the authoritative list under
-[Invariants](README.md#invariants) — flat-buffer offsets, the accumulator tree that
-keeps the loop bit-exact, no allocation between `build()` and destruction, gradients
-accumulating until the update step, and `input_cache_` holding the current pass's
-input. Read it before changing the memory layout or the training loop. Breaking one
-produces a library that trains plausibly and is silently wrong.
+[Invariants](README.md#invariants) — gradients accumulating until the update step,
+`layerInputs` holding the current pass's input in the layer's own dtype, the
+`DType` argument agreeing with the template scalar type, boundary conversion
+happening exactly once into the layer's scratch, derivative resolution going
+through `fetchAssociatedDerivative`, no steady-state allocation between `build()`
+and destruction, and a `Network` owning (and refusing to copy) its layers. Read it
+before changing the memory layout or the training loop. Breaking one produces a
+library that trains plausibly and is silently wrong.
 
 ## Code style
 

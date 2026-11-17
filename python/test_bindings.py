@@ -8,6 +8,7 @@ print("gradiex", gradiex.__version__, "dtype", gradiex.__dtype__)
 print("activations :", gradiex.activations())
 print("losses      :", gradiex.losses())
 print("initializers:", gradiex.initializers())
+print("dtypes      :", gradiex.dtypes())
 
 # ---- XOR, which needs a real hidden layer ----
 X = np.array([[0.,0.],[0.,1.],[1.,0.],[1.,1.]])
@@ -63,6 +64,32 @@ assert h_full[-1] < h_full[0] and h_per[-1] < h_per[0]
 assert h_full != h_per, "batch_size should change the update schedule"
 print(f"batch=0 (full) {h_full[0]:.5f} -> {h_full[-1]:.5f}   "
       f"batch=1 (sgd) {h_per[0]:.5f} -> {h_per[-1]:.5f}")
+
+# ---- per-layer dtype: layers may compute in float64 inside a float32 network ----
+gradiex.seed(11)
+mixed = gradiex.Network(0.5, batch_size=4)
+mixed.add_hidden(6, input_size=2, activation="tanh", init="xavier", dtype="float64")
+mixed.add_output(1, activation="sigmoid", loss="mse")
+mixed.build()
+assert mixed.layers[0]["dtype"] == "float64" and mixed.layers[1]["dtype"] == "float32", mixed.layers
+hm = mixed.train(X, Y, epochs=4000, shuffle=True, seed=42)
+assert hm[-1] < hm[0] / 10, "mixed-dtype network did not learn"
+preds = [mixed.predict(x)[0] for x in X]
+assert all(round(p) == y[0] for p, y in zip(preds, Y)), f"mixed-dtype XOR not solved: {preds}"
+w0 = np.array(mixed.weights(0))                     # weights() crosses into float32
+mixed.set_weights(0, w0)
+assert np.array_equal(np.array(mixed.weights(0)), w0), "double-layer weights did not round-trip"
+print(f"\nmixed dtype (float64 hidden): XOR {hm[0]:.5f} -> {hm[-1]:.6f}, solved:", True)
+print("  layers:", mixed.layers)
+
+gradiex.seed(12)
+dout = gradiex.Network(0.5, batch_size=4)
+dout.add_hidden(6, input_size=2, activation="tanh", init="xavier")
+dout.add_output(1, activation="sigmoid", loss="mse", dtype="float64")
+dout.build()
+hd = dout.train(X, Y, epochs=4000, shuffle=True, seed=42)
+assert hd[-1] < hd[0] / 10, "float64 output layer network did not learn"
+print(f"float64 output layer:    XOR {hd[0]:.5f} -> {hd[-1]:.6f}, solved:", True)
 
 # ---- lower-level API: the engine primitives, one call each ----
 net2 = gradiex.Network(0.1)
@@ -157,6 +184,7 @@ def expect(label, fn, exc=Exception):
 expect("softmax activation rejected (Jacobian, not implemented)",
        lambda: gradiex.Network(0.1).add_output(3, input_size=2, activation="softmax", loss="cce"))
 expect("unknown activation", lambda: gradiex.Network(0.1).add_hidden(3, 2, activation="nope"))
+expect("unknown dtype", lambda: gradiex.Network(0.1).add_hidden(3, 2, dtype="float128"))
 expect("unknown loss", lambda: gradiex.Network(0.1).add_output(1, 2, loss="nope"))
 expect("first layer needs input_size", lambda: gradiex.Network(0.1).add_hidden(3))
 expect("use before build", lambda: gradiex.Network(0.1).forward([1.0]))

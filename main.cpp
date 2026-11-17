@@ -30,24 +30,30 @@ int main()
     };
 
     // Configure Network: 2 inputs -> Hidden layer (4 neurons) -> Output layer (1 neuron)
-    core::Network network(1, 1, 0.3);
+    // The default Network is Network<float> (float32 in, float32 out). Every layer
+    // also declares its own dtype as a constructor argument; here the hidden layer
+    // runs in float64 while the rest of the network stays float32, and the engine
+    // converts at the layer boundaries.
+    core::Network network(1, 1, 0.3f);
 
     network.addHiddenLayer(
         0,
         2,  // width
         2,  // input size
-        core::functions::activations::sigmoid,
-        core::functions::initializers::xavier,
-        core::functions::loss::mse
+        core::DType::float64,  // this hidden layer computes in double
+        core::functions::activations::sigmoid<double>,
+        core::functions::initializers::xavier<double>,
+        core::functions::loss::mse<double>
     );
 
     network.addOutputLayer(
         0,
         1,  // width
         2,  // input size
-        core::functions::activations::sigmoid,
-        core::functions::initializers::xavier,
-        core::functions::loss::mse
+        core::DType::float32,
+        core::functions::activations::sigmoid<float>,
+        core::functions::initializers::xavier<float>,
+        core::functions::loss::mse<float>
     );
 
     network.initializeAllWeightsAndBiases();

@@ -1,7 +1,7 @@
 # Test suite
 
-Unit tests for `core/layer.h` (`Layer`, `HiddenLayer`, `OutputLayer`) and
-`core/network.h` (`Network`).
+Unit tests for `core/layer.h` (`LayerBase`, `Layer<T>`, `HiddenLayer<T>`,
+`OutputLayer<T>`) and `core/network.h` (`Network<IO>`).
 
 ```sh
 ./tests/run_tests.sh            # both suites, plain build
@@ -15,8 +15,8 @@ Unit tests for `core/layer.h` (`Layer`, `HiddenLayer`, `OutputLayer`) and
 | file | what it covers |
 | --- | --- |
 | `test_framework.h` | the harness (~200 lines, no dependencies) |
-| `test_layer.cpp` | 49 tests: construction, derivative resolution, initializers, `calculateOutputs`, gradient accumulate/zero/scale, `updateWeightsAndBiases`, both `computeErrorSignal` overloads, saturation in the log-based losses |
-| `test_network.cpp` | 42 tests: layer registration, `forwardPass`, `accumulateGradients`/`applyGradients`, `computeLoss`, `trainBatch`, `train`, teardown |
+| `test_layer.cpp` | 61 tests: construction, derivative resolution, initializers, `calculateOutputs`, gradient accumulate/zero/scale, `updateWeightsAndBiases`, both `computeErrorSignal` overloads, saturation in the log-based losses, plus section K — templated double kernels, `DType` parsing/validation and the foreign-dtype boundary conversions |
+| `test_network.cpp` | 50 tests: layer registration, `forwardPass`, `accumulateGradients`/`applyGradients`, `computeLoss`, `trainBatch`, `train`, teardown, plus section H — mixed-dtype networks pinned against the float-only reference and a `Network<double>` end-to-end run |
 
 ## How it works
 
@@ -30,10 +30,10 @@ above each test shows the arithmetic — never captured from the
 implementation's output. A failing test therefore means the code disagrees with
 the math, not with itself.
 
-### float32 tolerances
+### float32 tolerances (and the double tests)
 
-The engine is `float` end to end, so reference values computed here in `double`
-agree only to about seven digits. Two constants express that:
+The float paths of the engine compute in `float`, so reference values computed here
+in `double` agree only to about seven digits. Two constants express that:
 
 - `kTol` (`1e-6`) — the useful precision of a float32 result near 1.0. Anything
   compared against a hand-computed transcendental uses this.
@@ -43,9 +43,14 @@ agree only to about seven digits. Two constants express that:
   against a decimal literal. `0.7f != 0.7`, so a literal would fail for the
   wrong reason.
 
+The v0.0.4 sections exercise the double instantiations too, where the references
+are genuinely double-precision (e.g. `sigmoid<double>(8)` keeps digits the float
+kernel rounds away). Mixed-dtype network tests compare a float64-hidden network
+against an all-float reference run with a `1e-5` tolerance, one SGD step at a time.
+
 ## Current results
 
-`91 tests: 91 pass`, in every mode: plain, `--asan`, `--simd`, and both together.
+`111 tests: 111 pass`, in every mode: plain, `--asan`, `--simd`, and both together.
 
 **`--simd` is not optional before shipping.** Unrecognised `#pragma omp` directives
 are discarded silently — `-Wall -Wextra` says nothing — so a malformed one is
@@ -90,6 +95,15 @@ loss function). Four were still open and were fixed alongside the port:
   pins the only trainable route to a softmax classifier (`identity` activation
   with `softmax_cross_entropy`), which is what the Python bindings steer callers
   to.
+- `MixedDtype_OneTrainingStepMatchesTheFloatReference` — a float64 hidden layer
+  inside a float32 network must land one SGD step in the same place as an
+  all-float reference network; the boundary conversions must not change the math.
+- `TemplatedActivation_MatchesTheDoubleReference` / `TemplatedLoss_KeepsDoublePrecision` —
+  the double instantiations are real double kernels, not the float kernels
+  widened after the fact.
+- `Layer_RejectsAMismatchedDtype` / `AddHiddenLayer_RejectsADtypeThatDisagreesWithTheFunctions` —
+  the `DType` constructor argument must agree with the template scalar type, and
+  both the layer and the network refuse loudly when it does not.
 
 ## Adding a test
 
@@ -97,7 +111,7 @@ loss function). Four were still open and were fixed alongside the port:
 TEST(Thing_DoesWhatTheMathSays)
 {
     // W = [[1,2]], b = [0.5], x = [1,1] -> z = 3.5
-    core::Layer layer = makeLayer(1, 2, act::relu);
+    core::Layer<float> layer = makeLayer(1, 2, act::relu<float>);
     ...
     ASSERT_NEAR(layer.neuronOutputsUnactivated[0], 3.5, kExact);
 }

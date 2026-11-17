@@ -6,10 +6,12 @@
     - The architecture follows the common pattern of providing initialization functions that 
         can be used for different types of layers in a neural network.
     - An example implmentation
-        core::functions::initializers::initFunction __initFunction__;
-        __initFunction__ = core::functions::initializers::zeros;
+        core::functions::initializers::initFunction<float> __initFunction__;
+        __initFunction__ = core::functions::initializers::zeros<float>;
         float* initializedWeights = __initFunction__(vectorScratchPad, size, size2);
     - Supports both zero initialization and random initialization methods like Xavier and He.
+    - Every function and the alias are templates on the scalar type T (float, double), so a
+        layer's weights are drawn directly in the precision the layer was built with.
     - Designed to be easily extendable for additional initialization methods in the future.
     - Namespaces are important for organizing code and avoiding name conflicts.
 */
@@ -55,9 +57,11 @@ namespace core::functions::initializers
 
     // Type alias for initialization functions that take a scratch pad and two size parameters 
     // and return a pointer to the initialized weights.
-    using initFunction = float* (*)(float* __restrict__ vectorScratchPad, size_t size, size_t size2);
+    template <typename T>
+    using initFunction = T* (*)(T* __restrict__ vectorScratchPad, size_t size, size_t size2);
 
-    inline float* zeros(float* __restrict__ vectorScratchPad, size_t size, size_t size2) {
+    template <typename T>
+    inline T* zeros(T* __restrict__ vectorScratchPad, size_t size, size_t size2) {
         /*
             Zeros out the given scratch pad.
             @param vectorScratchPad Pointer to the scratch pad to be initialized.
@@ -66,13 +70,14 @@ namespace core::functions::initializers
             @return Pointer to the initialized scratch pad.
         */
         for (size_t i = 0; i < size * size2; ++i)
-            vectorScratchPad[i] = 0.0f;
+            vectorScratchPad[i] = static_cast<T>(0);
         return vectorScratchPad;
     }
 
     // Xavier Initialization: W ~ N(0, sqrt(2 / (fan_in + fan_out)))
-    inline float* xavier(float* __restrict__ vectorScratchPad, 
-                        size_t fanIn, size_t fanOut) {
+    template <typename T>
+    inline T* xavier(T* __restrict__ vectorScratchPad, 
+                     size_t fanIn, size_t fanOut) {
         /*
             Xavier initialization for the given scratch pad.
             @param vectorScratchPad Pointer to the scratch pad to be initialized.
@@ -81,8 +86,8 @@ namespace core::functions::initializers
             @return Pointer to the initialized scratch pad.
         */
         // Calculate the correct standard deviation using the sum
-        float std_dev = std::sqrt(2.0f / static_cast<float>(fanIn + fanOut));
-        std::normal_distribution<float> dist(0.0f, std_dev);
+        T std_dev = std::sqrt(static_cast<T>(2) / static_cast<T>(fanIn + fanOut));
+        std::normal_distribution<T> dist(static_cast<T>(0), std_dev);
 
         auto& gen = get_generator();
         size_t total_size = fanIn * fanOut;
@@ -92,8 +97,9 @@ namespace core::functions::initializers
         return vectorScratchPad;
     }
 
-    inline float* he(float* __restrict__ vectorScratchPad,
-                        size_t fanIn, size_t fanOut) {
+    template <typename T>
+    inline T* he(T* __restrict__ vectorScratchPad,
+                 size_t fanIn, size_t fanOut) {
         /*
             He initialization for the given scratch pad.  W ~ N(0, sqrt(2 / fan_in))
             @param vectorScratchPad Pointer to the scratch pad to be initialized.
@@ -101,8 +107,8 @@ namespace core::functions::initializers
             @param fanOut The number of output units.
             @return Pointer to the initialized scratch pad.
         */
-        float std_dev = std::sqrt(2.0f / static_cast<float>(fanIn));
-        std::normal_distribution<float> dist(0.0f, std_dev);
+        T std_dev = std::sqrt(static_cast<T>(2) / static_cast<T>(fanIn));
+        std::normal_distribution<T> dist(static_cast<T>(0), std_dev);
         
         auto& gen = get_generator();
 

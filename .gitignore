@@ -21,3 +21,6 @@ tests/build/
 # from the index wants its own commit; this at least stops new ones appearing.
 .DS_Store
 .idea/
+
+
+gradiex.edd-info/

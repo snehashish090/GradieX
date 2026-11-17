@@ -1,9 +1,17 @@
 # Examples
 
 ```sh
-cd 0.0.3
+cd 0.0.4
 python3 setup.py build_ext --inplace
 python3 examples/two_moons.py
+```
+
+The same two-moons script can be run with a float64 hidden layer to see per-layer
+data types in action — the network's IO stays float32, the layer computes in
+double, and the engine converts at the boundary:
+
+```python
+net.add_hidden(16, input_size=2, activation="tanh", init="xavier", dtype="float64")
 ```
 
 ## `two_moons.py`
@@ -71,5 +79,6 @@ rounds away entirely in a float32 engine — `1.0f - 1e-12f` *is* `1.0f`, so the
 upper clamp never bit. Once the sigmoid saturated to exactly 1.0, the loss hit
 `log(0) = -inf` and the derivative divided by zero; multiplied by an activation
 derivative of 0, that is `inf * 0 = NaN`, which reaches every weight on the next
-update and never washes out. The guard is now `1e-7f`, representable either side
-of 1.0, and `tests/test_layer.cpp` section G pins it.
+update and never washes out. The guard is now `kProbabilityEpsilon` at `1e-7`,
+representable either side of 1.0 in both `float32` and `float64`, and
+`tests/test_layer.cpp` section G pins it.

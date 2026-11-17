@@ -5,10 +5,12 @@
     - The architecture is the same as activations.h. LossFunction becomes the data type alias 
         which : is a function pointer to a loss function.
     - The required unit can then store the loss function as a member variable like :
-        core::functions::loss::LossFunction __lossFunction__;
+        core::functions::loss::LossFunction<float> __lossFunction__;
     - This makes it simple to swap loss functions as needed without having to write a 
         bunch of switch cases or if-else chains in every function.
-        __lossFunction__ = core::functions::loss::mse;
+        __lossFunction__ = core::functions::loss::mse<float>;
+    - Every function and both aliases are templates on the scalar type T (float, double), so a
+        layer can run its loss in whatever precision the layer itself was built with.
 */
 
 #pragma once
@@ -32,27 +34,32 @@ namespace core::functions::loss {
     /*
         The smallest probability the log-based losses will look at.
 
-        This engine is float32, which resolves about 1.2e-7 near 1.0, so the
+        For a float32 engine this resolves about 1.2e-7 near 1.0, so the
         1e-12 this used to use rounded away completely: `1.0f - 1e-12f` IS
         `1.0f`, the upper clamp never bit, and a sigmoid that saturated to 1.0
         produced log(0) = -inf and a 1/0 derivative. Multiplied by the
         activation derivative (0.0 once saturated) that is inf * 0 = NaN, which
         reaches every weight on the next update and never leaves.
 
-        1e-7f is representable either side of 1.0, so both ends of the clamp
-        hold and a saturated output yields a large-but-finite gradient.
+        1e-7 is representable either side of 1.0 in both float32 and float64,
+        so both ends of the clamp hold and a saturated output yields a
+        large-but-finite gradient.
     */
-    constexpr float kProbabilityEpsilon = 1e-7f;
+    template <typename T>
+    inline constexpr T kProbabilityEpsilon = static_cast<T>(1e-7);
 
     // Function pointer aliases so layers can store loss implementations directly.
-    using LossFunction = float (*) (const float* __restrict__ actual,
-        const float* __restrict__ predicted, size_t size);
-    using LossFunctionDerivative = float* (*) (const float* __restrict__ actual,
-        const float* __restrict__ predicted,
-        float* __restrict__ vectorScratchPad, size_t size);
-    
-    inline float mse(const float* __restrict__ actual,
-                      const float* __restrict__ predicted, size_t size) {
+    template <typename T>
+    using LossFunction = T (*) (const T* __restrict__ actual,
+        const T* __restrict__ predicted, size_t size);
+    template <typename T>
+    using LossFunctionDerivative = T* (*) (const T* __restrict__ actual,
+        const T* __restrict__ predicted,
+        T* __restrict__ vectorScratchPad, size_t size);
+
+    template <typename T>
+    inline T mse(const T* __restrict__ actual,
+                 const T* __restrict__ predicted, size_t size) {
         /**
             @param actual contains a vector of the ground truth values.
             @param predicted contains a vector of the predicted values.
@@ -60,17 +67,18 @@ namespace core::functions::loss {
  
             @return loss which is a scalar value representative of the whoke network
         */
-        float sum = 0.0f;
+        T sum = static_cast<T>(0);
         #pragma omp simd reduction(+:sum)
         for (size_t i = 0; i < size; ++i) {
-            float diff = predicted[i] - actual[i];
+            T diff = predicted[i] - actual[i];
             sum += diff * diff;
         }
-        return sum / static_cast<float>(size);
+        return sum / static_cast<T>(size);
     }
-    inline float* mseDerivative(const float* __restrict__ actual,
-                                 const float* __restrict__ predicted,
-                                 float* __restrict__ vectorScratchPad, size_t size) {
+    template <typename T>
+    inline T* mseDerivative(const T* __restrict__ actual,
+                            const T* __restrict__ predicted,
+                            T* __restrict__ vectorScratchPad, size_t size) {
         /***
             @param actual contains a vector of the ground truth values.
             @param predicted contains a vector of the predicted values.
@@ -79,14 +87,15 @@ namespace core::functions::loss {
 
             @return vectorScratchPad containing element-wise MSE gradients.
         */
-        float invN = 1.0f / static_cast<float>(size);
+        T invN = static_cast<T>(1) / static_cast<T>(size);
         for (size_t i = 0; i < size; ++i)
-            vectorScratchPad[i] = 2.0f * (predicted[i] - actual[i]) * invN;
+            vectorScratchPad[i] = static_cast<T>(2) * (predicted[i] - actual[i]) * invN;
         return vectorScratchPad;
     }
 
-    inline float mae(const float* __restrict__ actual,
-                      const float* __restrict__ predicted, size_t size) {
+    template <typename T>
+    inline T mae(const T* __restrict__ actual,
+                 const T* __restrict__ predicted, size_t size) {
         /**
             @param actual contains a vector of the ground truth values.
             @param predicted contains a vector of the predicted values.
@@ -94,15 +103,16 @@ namespace core::functions::loss {
 
             @return mean absolute error over all elements.
         */
-        float sum = 0.0f;
+        T sum = static_cast<T>(0);
         #pragma omp simd reduction(+:sum)
         for (size_t i = 0; i < size; ++i)
             sum += std::abs(predicted[i] - actual[i]);
-        return sum / static_cast<float>(size);
+        return sum / static_cast<T>(size);
     }
-    inline float* maeDerivative(const float* __restrict__ actual,
-                                 const float* __restrict__ predicted,
-                                 float* __restrict__ vectorScratchPad, size_t size) {
+    template <typename T>
+    inline T* maeDerivative(const T* __restrict__ actual,
+                            const T* __restrict__ predicted,
+                            T* __restrict__ vectorScratchPad, size_t size) {
         /**
             @param actual contains a vector of the ground truth values.
             @param predicted contains a vector of the predicted values.
@@ -111,17 +121,18 @@ namespace core::functions::loss {
 
             @return vectorScratchPad containing element-wise MAE subgradients.
         */
-        float invN = 1.0f / static_cast<float>(size);
+        T invN = static_cast<T>(1) / static_cast<T>(size);
         for (size_t i = 0; i < size; ++i) {
-            float diff = predicted[i] - actual[i];
+            T diff = predicted[i] - actual[i];
             // Subgradient: undefined exactly at 0, we pick 0
-            vectorScratchPad[i] = (diff > 0.0f) ? invN : (diff < 0.0f) ? -invN : 0.0f;
+            vectorScratchPad[i] = (diff > static_cast<T>(0)) ? invN : (diff < static_cast<T>(0)) ? -invN : static_cast<T>(0);
         }
         return vectorScratchPad;
     }
 
-    inline float huber(const float* __restrict__ actual,
-                        const float* __restrict__ predicted, size_t size) {
+    template <typename T>
+    inline T huber(const T* __restrict__ actual,
+                   const T* __restrict__ predicted, size_t size) {
         /**
             @param actual contains a vector of the ground truth values.
             @param predicted contains a vector of the predicted values.
@@ -129,23 +140,20 @@ namespace core::functions::loss {
 
             @return mean Huber loss over all elements.
         */
-        constexpr float delta = 1.0f;  // tweak to taste
-        float sum = 0.0f;
+        constexpr T delta = static_cast<T>(1);  // tweak to taste
+        T sum = static_cast<T>(0);
         #pragma omp simd reduction(+:sum)
         for (size_t i = 0; i < size; ++i) {
-            float diff = std::abs(predicted[i] - actual[i]);
-            // 0.5f, not 0.5: a double literal promotes this whole expression to
-            // double in an engine that is float everywhere else, which both costs
-            // precision-free work and stops the loop vectorising (clang reports
-            // "loop not vectorized" for exactly this under -fopenmp-simd).
-            sum += (diff <= delta) ? 0.5f * diff * diff
-                                   : delta * (diff - 0.5f * delta);
+            T diff = std::abs(predicted[i] - actual[i]);
+            sum += (diff <= delta) ? static_cast<T>(0.5) * diff * diff
+                                   : delta * (diff - static_cast<T>(0.5) * delta);
         }
-        return sum / static_cast<float>(size);
+        return sum / static_cast<T>(size);
     }
-    inline float* huberDerivative(const float* __restrict__ actual,
-                                   const float* __restrict__ predicted,
-                                   float* __restrict__ vectorScratchPad, size_t size) {
+    template <typename T>
+    inline T* huberDerivative(const T* __restrict__ actual,
+                              const T* __restrict__ predicted,
+                              T* __restrict__ vectorScratchPad, size_t size) {
         /**
             @param actual contains a vector of the ground truth values.
             @param predicted contains a vector of the predicted values.
@@ -154,19 +162,20 @@ namespace core::functions::loss {
 
             @return vectorScratchPad containing element-wise Huber gradients.
         */
-        constexpr float delta = 1.0f;  // must match huber()
-        float invN = 1.0f / static_cast<float>(size);
+        constexpr T delta = static_cast<T>(1);  // must match huber()
+        T invN = static_cast<T>(1) / static_cast<T>(size);
         for (size_t i = 0; i < size; ++i) {
-            float diff = predicted[i] - actual[i];
+            T diff = predicted[i] - actual[i];
             vectorScratchPad[i] = (std::abs(diff) <= delta) ? diff * invN
-                                 : delta * ((diff > 0.0f) ? invN : -invN);
+                                 : delta * ((diff > static_cast<T>(0)) ? invN : -invN);
         }
         return vectorScratchPad;
     }
 
 
-    inline float binaryCrossEntropy(const float* __restrict__ actual,
-                                     const float* __restrict__ predicted, size_t size) {
+    template <typename T>
+    inline T binaryCrossEntropy(const T* __restrict__ actual,
+                                const T* __restrict__ predicted, size_t size) {
         /**
             @param actual contains binary labels in [0, 1].
             @param predicted contains predicted probabilities in [0, 1].
@@ -174,18 +183,19 @@ namespace core::functions::loss {
 
             @return mean binary cross-entropy.
         */
-        constexpr float eps = kProbabilityEpsilon;
-        float sum = 0.0f;
+        constexpr T eps = kProbabilityEpsilon<T>;
+        T sum = static_cast<T>(0);
         #pragma omp simd reduction(+:sum)
         for (size_t i = 0; i < size; ++i) {
-            float p = std::clamp(predicted[i], eps, 1.0f - eps);
-            sum += actual[i] * std::log(p) + (1.0f - actual[i]) * std::log(1.0f - p);
+            T p = std::clamp(predicted[i], eps, static_cast<T>(1) - eps);
+            sum += actual[i] * std::log(p) + (static_cast<T>(1) - actual[i]) * std::log(static_cast<T>(1) - p);
         }
-        return -sum / static_cast<float>(size);
+        return -sum / static_cast<T>(size);
     }
-    inline float* binaryCrossEntropyDerivative(const float* __restrict__ actual,
-                                                const float* __restrict__ predicted,
-                                                float* __restrict__ vectorScratchPad, size_t size) {
+    template <typename T>
+    inline T* binaryCrossEntropyDerivative(const T* __restrict__ actual,
+                                           const T* __restrict__ predicted,
+                                           T* __restrict__ vectorScratchPad, size_t size) {
         /**
             @param actual contains binary labels in [0, 1].
             @param predicted contains predicted probabilities in [0, 1].
@@ -194,17 +204,18 @@ namespace core::functions::loss {
 
             @return vectorScratchPad containing BCE gradients wrt predictions.
         */
-        constexpr float eps = kProbabilityEpsilon;
-        float invN = 1.0f / static_cast<float>(size);
+        constexpr T eps = kProbabilityEpsilon<T>;
+        T invN = static_cast<T>(1) / static_cast<T>(size);
         for (size_t i = 0; i < size; ++i) {
-            float p = std::clamp(predicted[i], eps, 1.0f - eps);
-            vectorScratchPad[i] = (p - actual[i]) / (p * (1.0f - p)) * invN;
+            T p = std::clamp(predicted[i], eps, static_cast<T>(1) - eps);
+            vectorScratchPad[i] = (p - actual[i]) / (p * (static_cast<T>(1) - p)) * invN;
         }
         return vectorScratchPad;
     }
 
-    inline float crossEntropy(const float* __restrict__ actual,
-                               const float* __restrict__ predicted, size_t size) {
+    template <typename T>
+    inline T crossEntropy(const T* __restrict__ actual,
+                          const T* __restrict__ predicted, size_t size) {
         /**
             @param actual contains class targets (typically one-hot or soft labels).
             @param predicted contains class probabilities.
@@ -212,16 +223,17 @@ namespace core::functions::loss {
 
             @return cross-entropy value over the class vector.
         */
-        constexpr float eps = kProbabilityEpsilon;
-        float sum = 0.0f;
+        constexpr T eps = kProbabilityEpsilon<T>;
+        T sum = static_cast<T>(0);
         #pragma omp simd reduction(+:sum)
         for (size_t i = 0; i < size; ++i)
             sum += actual[i] * std::log(std::max(predicted[i], eps));
         return -sum;
     }
-    inline float* crossEntropyDerivative(const float* __restrict__ actual,
-                                          const float* __restrict__ predicted,
-                                          float* __restrict__ vectorScratchPad, size_t size) {
+    template <typename T>
+    inline T* crossEntropyDerivative(const T* __restrict__ actual,
+                                     const T* __restrict__ predicted,
+                                     T* __restrict__ vectorScratchPad, size_t size) {
         /**
             @param actual contains class targets (typically one-hot or soft labels).
             @param predicted contains class probabilities.
@@ -230,15 +242,16 @@ namespace core::functions::loss {
 
             @return vectorScratchPad containing CE gradients wrt predictions.
         */
-        constexpr float eps = kProbabilityEpsilon;
+        constexpr T eps = kProbabilityEpsilon<T>;
         #pragma omp simd 
         for (size_t i = 0; i < size; ++i)
             vectorScratchPad[i] = -actual[i] / std::max(predicted[i], eps);
         return vectorScratchPad;
     }
 
-    inline float softmaxCrossEntropy(const float* __restrict__ actual,
-                                      const float* __restrict__ predicted, size_t size) {
+    template <typename T>
+    inline T softmaxCrossEntropy(const T* __restrict__ actual,
+                                 const T* __restrict__ predicted, size_t size) {
         /**
             @param actual contains class targets (typically one-hot or soft labels).
             @param predicted contains logits (not probabilities).
@@ -247,21 +260,21 @@ namespace core::functions::loss {
             @return softmax cross-entropy computed via log-sum-exp.
         */
         // Find max logit for numerical stability
-        float maxLogit = predicted[0];
+        T maxLogit = predicted[0];
         for (size_t i = 1; i < size; ++i) {
             if (predicted[i] > maxLogit) maxLogit = predicted[i];
         }
 
         // sum of exponents
-        float sumExp = 0.0f;
+        T sumExp = static_cast<T>(0);
         #pragma omp simd reduction(+:sumExp)
         for (size_t i = 0; i < size; ++i) {
             sumExp += std::exp(predicted[i] - maxLogit);
         }
 
         // cross-entropy loss directly using log-sum-exp
-        float loss = 0.0f;
-        float logSumExp = std::log(sumExp);
+        T loss = static_cast<T>(0);
+        T logSumExp = std::log(sumExp);
         #pragma omp simd reduction(+:loss)
         for (size_t i = 0; i < size; ++i) {
             loss += actual[i] * (predicted[i] - maxLogit - logSumExp);
@@ -269,9 +282,10 @@ namespace core::functions::loss {
         return -loss;
     }
 
-    inline float* softmaxCrossEntropyDerivative(const float* __restrict__ actual,
-                                                 const float* __restrict__ predicted,
-                                                 float* __restrict__ vectorScratchPad, size_t size) {
+    template <typename T>
+    inline T* softmaxCrossEntropyDerivative(const T* __restrict__ actual,
+                                            const T* __restrict__ predicted,
+                                            T* __restrict__ vectorScratchPad, size_t size) {
         /**
             @param actual contains class targets (typically one-hot or soft labels).
             @param predicted contains logits (not probabilities).
@@ -281,13 +295,13 @@ namespace core::functions::loss {
             @return vectorScratchPad containing dL/dlogits = softmax(logits) - target.
         */
         // Find max logit
-        float maxLogit = predicted[0];
+        T maxLogit = predicted[0];
         for (size_t i = 1; i < size; ++i) {
             if (predicted[i] > maxLogit) maxLogit = predicted[i];
         }
 
         // Compute exponents and store them temporarily in scratchPad
-        float sumExp = 0.0f;
+        T sumExp = static_cast<T>(0);
         #pragma omp simd reduction(+:sumExp)
         for (size_t i = 0; i < size; ++i) {
             vectorScratchPad[i] = std::exp(predicted[i] - maxLogit);
@@ -295,7 +309,7 @@ namespace core::functions::loss {
         }
 
         // Calculate final gradient: softmax(predicted) - actual
-        float invSumExp = 1.0f / sumExp;
+        T invSumExp = static_cast<T>(1) / sumExp;
         // No reduction clause: this loop OVERWRITES vectorScratchPad, it does not
         // accumulate into it. The `reduction(+:vectorScratchPad[:size])` that used
         // to sit here gave each lane a private copy initialised to the identity (0)
@@ -304,21 +318,22 @@ namespace core::functions::loss {
         // -fopenmp-simd made it fail immediately.
         #pragma omp simd
         for (size_t i = 0; i < size; ++i) {
-            float prob = vectorScratchPad[i] * invSumExp;
+            T prob = vectorScratchPad[i] * invSumExp;
             vectorScratchPad[i] = prob - actual[i];
         }
         
         return vectorScratchPad;
     }
 
-    inline LossFunctionDerivative fetchAssociatedDerivative(LossFunction lossFunction)
+    template <typename T>
+    inline LossFunctionDerivative<T> fetchAssociatedDerivative(LossFunction<T> lossFunction)
     {
-        if (lossFunction == mse)                 return mseDerivative;
-        if (lossFunction == crossEntropy)        return crossEntropyDerivative;
-        if (lossFunction == softmaxCrossEntropy) return softmaxCrossEntropyDerivative;
-        if (lossFunction == binaryCrossEntropy)  return binaryCrossEntropyDerivative;
-        if (lossFunction == mae)                 return maeDerivative;
-        if (lossFunction == huber)               return huberDerivative;
+        if (lossFunction == mse<T>)                 return mseDerivative<T>;
+        if (lossFunction == crossEntropy<T>)        return crossEntropyDerivative<T>;
+        if (lossFunction == softmaxCrossEntropy<T>) return softmaxCrossEntropyDerivative<T>;
+        if (lossFunction == binaryCrossEntropy<T>)  return binaryCrossEntropyDerivative<T>;
+        if (lossFunction == mae<T>)                 return maeDerivative<T>;
+        if (lossFunction == huber<T>)               return huberDerivative<T>;
         return nullptr;
 
     }
